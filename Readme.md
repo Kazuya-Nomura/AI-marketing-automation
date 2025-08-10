@@ -875,7 +875,7 @@ graph TD
   C --> E[Onboarding Wizard]
   D --> E[Onboarding Wizard]
   E --> F[Step 1: Configure WhatsApp Business API]
-  E -->|Step 2: Configure Email IMAP/SMTP| G[Email Configuration]
+  E --> G[Step 2: Configure Email IMAP/SMTP]
   E --> H[Step 3: Select Social Media Connectors]
   E --> I[Step 4: Enable Cloud Drives & AI Services]
   E --> J[Review & Save]

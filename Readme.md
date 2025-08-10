@@ -865,9 +865,9 @@ A set of documentation sections you can drop into your “Business Logic & Objec
 
 ## 1. Integration Configuration Workflow
 flowchart TD
-```flowchart TD
-  A[User lands on Login Page]
-    --> B{SSO or Register}
+```
+graph TD
+  A[User lands on Login Page] --> B{SSO or Register}
   B -->|Google SSO| C[Auth0 ↔ Google OAuth]
   B -->|Email/Password| D[Auth0 User Pool]
 

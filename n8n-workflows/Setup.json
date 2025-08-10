@@ -1,0 +1,72 @@
+{
+  "name": "User Integration Setup",
+  "nodes": [
+    {
+      "name": "Config Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "user/configure",
+        "responseData": "allEntries"
+      },
+      "position": [250, 200]
+    },
+    {
+      "name": "Auth0 SSO",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "={{$env.AUTH0_ISSUER_URL}}/oauth/token",
+        "method": "POST",
+        "bodyParametersJson": "{\"grant_type\":\"authorization_code\",\"code\":\"{{$json[\"code\"]}}\",\"redirect_uri\":\"{{$env.REDIRECT_URI}}\",\"client_id\":\"{{$env.AUTH0_CLIENT_ID}}\",\"client_secret\":\"{{$env.AUTH0_CLIENT_SECRET}}\"}"
+      },
+      "position": [450, 200]
+    },
+    {
+      "name": "Save User",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "insert",
+        "table": "users",
+        "columns": [
+          { "name": "auth0_id", "value": "={{$node[\"Auth0 SSO\"].json[\"sub\"]}}" },
+          { "name": "email", "value": "={{$node[\"Auth0 SSO\"].json[\"email\"]}}" }
+        ]
+      },
+      "position": [650, 200]
+    },
+    {
+      "name": "Configure WhatsApp",
+      "type": "n8n-nodes-base.set",
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "whatsapp_api_url", "value": "={{$json[\"whatsapp_api_url\"]}}" },
+            { "name": "whatsapp_token",     "value": "={{$json[\"whatsapp_token\"]}}" }
+          ]
+        }
+      },
+      "position": [450, 350]
+    },
+    {
+      "name": "Save Integrations",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "upsert",
+        "table": "user_integrations",
+        "columns": [
+          { "name": "user_id", "value": "={{$node[\"Save User\"].json[\"id\"]}}" },
+          { "name": "key",     "value": "={{$json[\"key\"]}}" },
+          { "name": "value",   "value": "={{$json[\"value\"]}}" }
+        ],
+        "conflictKey": "user_id,key"
+      },
+      "position": [650, 350]
+    }
+  ],
+  "connections": {
+    "Config Webhook": { "main": [[{"node":"Auth0 SSO","type":"main","index":0}]] },
+    "Auth0 SSO":      { "main": [[{"node":"Save User","type":"main","index":0}]] },
+    "Save User":      { "main": [[{"node":"Configure WhatsApp","type":"main","index":0}]] },
+    "Configure WhatsApp": { "main": [[{"node":"Save Integrations","type":"main","index":0}]] }
+  }
+}

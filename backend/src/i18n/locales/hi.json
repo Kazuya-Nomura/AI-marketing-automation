@@ -1,0 +1,21 @@
+const hiTranslations = {
+  "errors": {
+    "validation": {
+      "required": "{{field}} आवश्यक है",
+      "invalid": "{{field}} अमान्य है",
+      "duplicate": "{{field}} पहले से मौजूद है"
+    },
+    "auth": {
+      "unauthorized": "अनधिकृत पहुंच",
+      "invalidCredentials": "अमान्य ईमेल या पासवर्ड",
+      "tokenExpired": "सत्र समाप्त हो गया, कृपया फिर से लॉगिन करें"
+    }
+  },
+  "success": {
+    "lead": {
+      "created": "लीड सफलतापूर्वक बनाई गई",
+      "updated": "लीड सफलतापूर्वक अपडेट की गई",
+      "deleted": "लीड सफलतापूर्वक हटाई गई"
+    }
+  }
+};

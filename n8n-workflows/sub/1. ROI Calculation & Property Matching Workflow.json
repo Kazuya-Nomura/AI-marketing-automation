@@ -1,0 +1,501 @@
+{
+  "name": "ROI Calculation & Property Matching Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        }
+      },
+      "name": "Check for New Lead Requests",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "trigger_001"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT l.*, lp.* FROM leads l LEFT JOIN lead_preferences lp ON l.id = lp.lead_id WHERE l.roi_calculation_requested = true AND l.roi_calculation_completed = false ORDER BY l.score DESC LIMIT 10",
+        "additionalFields": {}
+      },
+      "name": "Get Pending ROI Requests",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "id": "db_001"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Process Each Lead",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "id": "split_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/ai/analyze-lead-profile",
+        "method": "POST",
+        "bodyParametersJson": "={{JSON.stringify($node[\"Process Each Lead\"].json)}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Analyze Lead Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "id": "http_001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$node[\"Analyze Lead Profile\"].json[\"profileCompleteness\"]}}",
+              "operation": "largerEqual",
+              "value2": 80
+            }
+          ]
+        }
+      },
+      "name": "Check Profile Completeness",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "id": "if_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/data-enrichment/enrich-lead",
+        "method": "POST",
+        "bodyParametersJson": "{\"leadId\": \"{{$node[\"Process Each Lead\"].json[\"id\"]}}\", \"requiredFields\": [\"income_range\", \"investment_experience\", \"preferred_locations\"]}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Enrich Lead Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1050, 450],
+      "id": "http_002"
+    },
+    {
+      "parameters": {
+        "functionCode": "const leadProfile = $node[\"Analyze Lead Profile\"].json;\nconst enrichedData = $node[\"Enrich Lead Data\"].json || {};\n\n// Extract and structure search parameters\nconst searchParams = {\n  budget_min: leadProfile.budget_min || enrichedData.estimated_budget_min || 5000000,\n  budget_max: leadProfile.budget_max || enrichedData.estimated_budget_max || 50000000,\n  locations: leadProfile.preferred_locations || enrichedData.locations || ['Mumbai', 'Pune'],\n  property_types: leadProfile.property_types || ['apartment', 'villa'],\n  min_roi: leadProfile.min_roi_expectation || 12,\n  features: leadProfile.desired_features || [],\n  investment_horizon: leadProfile.investment_horizon || 5\n};\n\n// Create embedding for semantic search\nconst searchQuery = `${searchParams.property_types.join(' ')} in ${searchParams.locations.join(' ')} with ${searchParams.min_roi}% ROI within budget ${searchParams.budget_max}`;\n\nreturn {\n  leadId: leadProfile.id,\n  searchParams,\n  searchQuery,\n  leadScore: leadProfile.score,\n  temperature: leadProfile.temperature\n};"
+      },
+      "name": "Extract Search Parameters",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [1250, 300],
+      "id": "func_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/rag/property-search",
+        "method": "POST",
+        "bodyParametersJson": "={{JSON.stringify($node[\"Extract Search Parameters\"].json)}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "RAG Property Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1450, 300],
+      "id": "http_003"
+    },
+    {
+      "parameters": {
+        "functionCode": "const properties = $node[\"RAG Property Search\"].json.properties;\nconst searchParams = $node[\"Extract Search Parameters\"].json.searchParams;\n\n// Filter properties based on hard constraints\nconst filteredProperties = properties.filter(property => {\n  // Budget filter\n  if (property.price < searchParams.budget_min * 0.8 || \n      property.price > searchParams.budget_max * 1.2) {\n    return false;\n  }\n  \n  // Location filter\n  if (!searchParams.locations.some(loc => \n    property.location.toLowerCase().includes(loc.toLowerCase()))) {\n    return false;\n  }\n  \n  // Property type filter\n  if (!searchParams.property_types.includes(property.type)) {\n    return false;\n  }\n  \n  return true;\n});\n\n// Sort by relevance score from RAG\nfilteredProperties.sort((a, b) => b.relevance_score - a.relevance_score);\n\n// Take top 10 properties\nreturn {\n  properties: filteredProperties.slice(0, 10),\n  totalFound: filteredProperties.length,\n  searchParams\n};"
+      },
+      "name": "Filter & Sort Properties",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [1650, 300],
+      "id": "func_002"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/roi/calculate-basic",
+        "method": "POST",
+        "bodyParametersJson": "{\"properties\": {{JSON.stringify($node[\"Filter & Sort Properties\"].json[\"properties\"])}}, \"investmentHorizon\": {{$node[\"Extract Search Parameters\"].json[\"searchParams\"][\"investment_horizon\"]}}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Calculate Basic ROI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1850, 200],
+      "id": "http_004"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/roi/calculate-financed",
+        "method": "POST",
+        "bodyParametersJson": "{\"properties\": {{JSON.stringify($node[\"Filter & Sort Properties\"].json[\"properties\"])}}, \"downPayment\": 0.20, \"interestRate\": 8.5, \"loanTenure\": 20}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Calculate Financed ROI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1850, 300],
+      "id": "http_005"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/roi/calculate-tax-benefits",
+        "method": "POST",
+        "bodyParametersJson": "{\"properties\": {{JSON.stringify($node[\"Filter & Sort Properties\"].json[\"properties\"])}}, \"leadIncome\": {{$node[\"Analyze Lead Profile\"].json[\"annual_income\"] || 5000000}}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Calculate Tax Benefits",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1850, 400],
+      "id": "http_006"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/market/trends-analysis",
+        "method": "POST",
+        "bodyParametersJson": "{\"locations\": {{JSON.stringify($node[\"Extract Search Parameters\"].json[\"searchParams\"][\"locations\"])}}, \"propertyTypes\": {{JSON.stringify($node[\"Extract Search Parameters\"].json[\"searchParams\"][\"property_types\"])}}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Get Market Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1850, 500],
+      "id": "http_007"
+    },
+    {
+      "parameters": {
+        "mode": "wait",
+        "value1": "={{$node[\"Calculate Basic ROI\"].json}}",
+        "value2": "={{$node[\"Calculate Financed ROI\"].json}}",
+        "value3": "={{$node[\"Calculate Tax Benefits\"].json}}",
+        "value4": "={{$node[\"Get Market Trends\"].json}}"
+      },
+      "name": "Wait for All Calculations",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2050, 350],
+      "id": "wait_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/ai/property-recommendations",
+        "method": "POST",
+        "bodyParametersJson": "{\"leadProfile\": {{JSON.stringify($node[\"Analyze Lead Profile\"].json)}}, \"properties\": {{JSON.stringify($node[\"Filter & Sort Properties\"].json[\"properties\"])}}, \"roiData\": {\"basic\": {{JSON.stringify($node[\"Calculate Basic ROI\"].json)}}, \"financed\": {{JSON.stringify($node[\"Calculate Financed ROI\"].json)}}, \"taxBenefits\": {{JSON.stringify($node[\"Calculate Tax Benefits\"].json)}}, \"marketTrends\": {{JSON.stringify($node[\"Get Market Trends\"].json)}}}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "AI Recommendation Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [2250, 350],
+      "id": "http_008"
+    },
+    {
+      "parameters": {
+        "functionCode": "const recommendations = $node[\"AI Recommendation Engine\"].json;\nconst leadProfile = $node[\"Analyze Lead Profile\"].json;\n\n// Score and rank properties based on multiple factors\nconst scoredProperties = recommendations.properties.map(property => {\n  let score = 0;\n  \n  // ROI Score (40%)\n  score += (property.roi.total / 100) * 40;\n  \n  // Match Score (30%)\n  score += property.matchScore * 30;\n  \n  // Risk Score (20%)\n  score += (100 - property.riskScore) * 0.2;\n  \n  // Market Trend Score (10%)\n  const trendScore = property.marketTrend === 'rising' ? 10 : \n                    property.marketTrend === 'stable' ? 5 : 0;\n  score += trendScore;\n  \n  return {\n    ...property,\n    finalScore: score,\n    ranking: 0\n  };\n});\n\n// Sort by final score\nscoredProperties.sort((a, b) => b.finalScore - a.finalScore);\n\n// Add ranking\nscoredProperties.forEach((property, index) => {\n  property.ranking = index + 1;\n});\n\nreturn {\n  rankedProperties: scoredProperties,\n  topRecommendation: scoredProperties[0],\n  leadId: leadProfile.id,\n  generatedAt: new Date().toISOString()\n};"
+      },
+      "name": "Score & Rank Properties",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [2450, 350],
+      "id": "func_003"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/ai/generate-insights",
+        "method": "POST",
+        "bodyParametersJson": "={{JSON.stringify($node[\"Score & Rank Properties\"].json)}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Generate AI Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [2650, 350],
+      "id": "http_009"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node[\"Analyze Lead Profile\"].json[\"temperature\"]}}",
+              "operation": "equals",
+              "value2": "hot"
+            }
+          ]
+        }
+      },
+      "name": "Check Lead Temperature",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2850, 350],
+      "id": "if_002"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/reports/generate-detailed",
+        "method": "POST",
+        "bodyParametersJson": "{\"leadId\": \"{{$node[\"Analyze Lead Profile\"].json[\"id\"]}}\", \"recommendations\": {{JSON.stringify($node[\"Score & Rank Properties\"].json)}}, \"insights\": {{JSON.stringify($node[\"Generate AI Insights\"].json)}}, \"includeVideo\": true, \"includeInteractive\": true}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Generate Detailed Report + Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [3050, 250],
+      "id": "http_010"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/reports/generate-standard",
+        "method": "POST",
+        "bodyParametersJson": "{\"leadId\": \"{{$node[\"Analyze Lead Profile\"].json[\"id\"]}}\", \"recommendations\": {{JSON.stringify($node[\"Score & Rank Properties\"].json)}}, \"insights\": {{JSON.stringify($node[\"Generate AI Insights\"].json)}}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Generate Standard Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [3050, 350],
+      "id": "http_011"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/reports/generate-summary",
+        "method": "POST",
+        "bodyParametersJson": "{\"leadId\": \"{{$node[\"Analyze Lead Profile\"].json[\"id\"]}}\", \"recommendations\": {{JSON.stringify($node[\"Score & Rank Properties\"].json[\"rankedProperties\"].slice(0, 3))}}, \"brief\": true}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Generate Summary Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [3050, 450],
+      "id": "http_012"
+    },
+    {
+      "parameters": {
+        "mode": "merge",
+        "mergeByFields": ["leadId"],
+        "options": {}
+      },
+      "name": "Merge Report Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 1,
+      "position": [3250, 350],
+      "id": "merge_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/personalization/apply",
+        "method": "POST",
+        "bodyParametersJson": "{\"leadId\": \"{{$node[\"Analyze Lead Profile\"].json[\"id\"]}}\", \"content\": {{JSON.stringify($node[\"Merge Report Data\"].json)}}, \"channels\": [\"whatsapp\", \"email\"]}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Apply Personalization",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [3450, 350],
+      "id": "http_013"
+    },
+    {
+      "parameters": {
+        "channel": "@{{$node[\"Analyze Lead Profile\"].json[\"phone\"]}}",
+        "messageType": "document",
+        "document": "={{$node[\"Apply Personalization\"].json[\"whatsapp\"][\"documentUrl\"]}}",
+        "caption": "={{$node[\"Apply Personalization\"].json[\"whatsapp\"][\"message\"]}}",
+        "additionalFields": {}
+      },
+      "name": "Send WhatsApp Report",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [3650, 250],
+      "id": "whatsapp_001"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.FROM_EMAIL}}",
+        "toEmail": "={{$node[\"Analyze Lead Profile\"].json[\"email\"]}}",
+        "subject": "={{$node[\"Apply Personalization\"].json[\"email\"][\"subject\"]}}",
+        "html": "={{$node[\"Apply Personalization\"].json[\"email\"][\"html\"]}}",
+        "attachments": "={{$node[\"Apply Personalization\"].json[\"email\"][\"attachments\"]}}",
+        "additionalFields": {
+          "trackOpens": true,
+          "trackClicks": true
+        }
+      },
+      "name": "Send Email Report",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [3650, 350],
+      "id": "email_001"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET roi_calculation_completed = true, roi_report_url = $1, last_engagement = NOW() WHERE id = $2; INSERT INTO roi_calculations (lead_id, properties_analyzed, top_recommendation, report_url, created_at) VALUES ($2, $3, $4, $1, NOW())",
+        "additionalFields": {
+          "queryParams": "={{$node[\"Apply Personalization\"].json[\"reportUrl\"]}},{{$node[\"Analyze Lead Profile\"].json[\"id\"]}},{{$node[\"Score & Rank Properties\"].json[\"rankedProperties\"].length}},{{JSON.stringify($node[\"Score & Rank Properties\"].json[\"topRecommendation\"])}}"
+        }
+      },
+      "name": "Update CRM & Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [3650, 450],
+      "id": "db_002"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/analytics/track-engagement",
+        "method": "POST",
+        "bodyParametersJson": "{\"leadId\": \"{{$node[\"Analyze Lead Profile\"].json[\"id\"]}}\", \"action\": \"roi_report_generated\", \"properties\": {{JSON.stringify($node[\"Score & Rank Properties\"].json[\"rankedProperties\"].map(p => p.id))}}, \"channels\": [\"whatsapp\", \"email\"], \"timestamp\": \"{{new Date().toISOString()}}\"}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Track Engagement",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [3850, 350],
+      "id": "http_014"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$node[\"Process Each Lead\"].context[\"noItemsLeft\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "More Leads?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [4050, 350],
+      "id": "if_003"
+    }
+  ],
+  "connections": {
+    "Check for New Lead Requests": {
+      "main": [[{"node": "Get Pending ROI Requests", "type": "main", "index": 0}]]
+    },
+    "Get Pending ROI Requests": {
+      "main": [[{"node": "Process Each Lead", "type": "main", "index": 0}]]
+    },
+    "Process Each Lead": {
+      "main": [[{"node": "Analyze Lead Profile", "type": "main", "index": 0}]]
+    },
+    "Analyze Lead Profile": {
+      "main": [[{"node": "Check Profile Completeness", "type": "main", "index": 0}]]
+    },
+    "Check Profile Completeness": {
+      "main": [
+        [{"node": "Extract Search Parameters", "type": "main", "index": 0}],
+        [{"node": "Enrich Lead Data", "type": "main", "index": 0}]
+      ]
+    },
+    "Enrich Lead Data": {
+      "main": [[{"node": "Extract Search Parameters", "type": "main", "index": 0}]]
+    },
+    "Extract Search Parameters": {
+      "main": [[{"node": "RAG Property Search", "type": "main", "index": 0}]]
+    },
+    "RAG Property Search": {
+      "main": [[{"node": "Filter & Sort Properties", "type": "main", "index": 0}]]
+    },
+    "Filter & Sort Properties": {
+      "main": [
+        [
+          {"node": "Calculate Basic ROI", "type": "main", "index": 0},
+          {"node": "Calculate Financed ROI", "type": "main", "index": 0},
+          {"node": "Calculate Tax Benefits", "type": "main", "index": 0},
+          {"node": "Get Market Trends", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Calculate Basic ROI": {
+      "main": [[{"node": "Wait for All Calculations", "type": "main", "index": 0}]]
+    },
+    "Calculate Financed ROI": {
+      "main": [[{"node": "Wait for All Calculations", "type": "main", "index": 1}]]
+    },
+    "Calculate Tax Benefits": {
+      "main": [[{"node": "Wait for All Calculations", "type": "main", "index": 2}]]
+    },
+    "Get Market Trends": {
+      "main": [[{"node": "Wait for All Calculations", "type": "main", "index": 3}]]
+    },
+    "Wait for All Calculations": {
+      "main": [[{"node": "AI Recommendation Engine", "type": "main", "index": 0}]]
+    },
+    "AI Recommendation Engine": {
+      "main": [[{"node": "Score & Rank Properties", "type": "main", "index": 0}]]
+    },
+    "Score & Rank Properties": {
+      "main": [[{"node": "Generate AI Insights", "type": "main", "index": 0}]]
+    },
+    "Generate AI Insights": {
+      "main": [[{"node": "Check Lead Temperature", "type": "main", "index": 0}]]
+    },
+    "Check Lead Temperature": {
+      "main": [
+        [{"node": "Generate Detailed Report + Video", "type": "main", "index": 0}],
+        [{"node": "Generate Standard Report", "type": "main", "index": 0}]
+      ]
+    },
+    "Generate Detailed Report + Video": {
+      "main": [[{"node": "Merge Report Data", "type": "main", "index": 0}]]
+    },
+    "Generate Standard Report": {
+      "main": [[{"node": "Merge Report Data", "type": "main", "index": 1}]]
+    },
+    "Merge Report Data": {
+      "main": [[{"node": "Apply Personalization", "type": "main", "index": 0}]]
+    },
+    "Apply Personalization": {
+      "main": [
+        [
+          {"node": "Send WhatsApp Report", "type": "main", "index": 0},
+          {"node": "Send Email Report", "type": "main", "index": 0},
+          {"node": "Update CRM & Database", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Send WhatsApp Report": {
+      "main": [[{"node": "Track Engagement", "type": "main", "index": 0}]]
+    },
+    "Send Email Report": {
+      "main": [[{"node": "Track Engagement", "type": "main", "index": 0}]]
+    },
+    "Update CRM & Database": {
+      "main": [[{"node": "Track Engagement", "type": "main", "index": 0}]]
+    },
+    "Track Engagement": {
+      "main": [[{"node": "More Leads?", "type": "main", "index": 0}]]
+    },
+    "More Leads?": {
+      "main": [
+        [{"node": "Process Each Lead", "type": "main", "index": 0}],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "saveDataSuccessExecution": true,
+    "saveDataErrorExecution": true,
+    "saveManualExecutions": true,
+    "executionTimeout": 300
+  }
+}

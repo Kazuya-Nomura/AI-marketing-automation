@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    // ... existing dependencies
+    "google-libphonenumber": "^3.2.32",
+    "isomorphic-dompurify": "^1.9.0",
+    "jsdom": "^22.1.0",
+    "validator": "^13.11.0"
+  }
+}

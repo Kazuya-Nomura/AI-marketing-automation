@@ -1,0 +1,632 @@
+{
+  "name": "Cross-Regional Data Sync Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": "0 */5 * * * *",
+        "timezone": "UTC"
+      },
+      "id": "schedule_trigger",
+      "name": "Sync Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT region_code, endpoint_url, compliance_rules, active_status, last_sync FROM regional_configs WHERE active_status = true ORDER BY priority ASC",
+        "options": {
+          "queryName": "get_active_regions"
+        }
+      },
+      "id": "get_regions",
+      "name": "Get Regional Configurations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM sync_queue WHERE status = 'pending' AND created_at > NOW() - INTERVAL '10 minutes' ORDER BY priority DESC, created_at ASC LIMIT 1000",
+        "options": {
+          "queryName": "fetch_sync_queue"
+        }
+      },
+      "id": "fetch_queue",
+      "name": "Fetch Changed Data Queue",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a data compliance expert. Analyze data items against regional compliance rules. Check for:\n1. PII handling requirements\n2. Data residency rules\n3. Encryption requirements\n4. Retention policies\n5. Cross-border transfer restrictions\n\nReturn JSON: {\"compliant\": boolean, \"violations\": [], \"requiredActions\": [], \"masking\": {}}"
+            },
+            {
+              "role": "user",
+              "content": "Check compliance for:\nData: {{JSON.stringify($json.queueData)}}\nRegions: {{JSON.stringify($json.regions)}}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "compliance_agent",
+      "name": "Compliance Check Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Data transformation and masking based on regional rules\nconst items = $input.all();\n\nreturn items.map(item => {\n  const { queueData, regions, compliance } = item.json;\n  const transformedData = {};\n  \n  // Apply masking rules for each region\n  regions.forEach(region => {\n    const regionData = { ...queueData };\n    const maskingRules = compliance.masking[region.region_code] || {};\n    \n    // Apply field-level masking\n    Object.keys(maskingRules).forEach(field => {\n      if (regionData[field]) {\n        switch (maskingRules[field]) {\n          case 'hash':\n            regionData[field] = crypto.createHash('sha256').update(regionData[field]).digest('hex');\n            break;\n          case 'partial':\n            regionData[field] = regionData[field].substring(0, 3) + '***';\n            break;\n          case 'remove':\n            delete regionData[field];\n            break;\n        }\n      }\n    });\n    \n    transformedData[region.region_code] = {\n      data: regionData,\n      endpoint: region.endpoint_url,\n      complianceStatus: compliance.compliant,\n      requiredActions: compliance.requiredActions\n    };\n  });\n  \n  return {\n    json: {\n      syncId: crypto.randomUUID(),\n      originalId: queueData.id,\n      timestamp: new Date().toISOString(),\n      transformedData,\n      complianceReport: compliance\n    }\n  };\n});"
+      },
+      "id": "data_transform",
+      "name": "Data Transform & Masking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "transformedData",
+        "options": {}
+      },
+      "id": "regional_splitter",
+      "name": "Regional Data Splitter",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{$json.region}}",
+              "value2": "UAE",
+              "output": 0
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.region}}",
+              "value2": "IND",
+              "output": 1
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.region}}",
+              "value2": "USA",
+              "output": 2
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.region}}",
+              "value2": "EUR",
+              "output": 3
+            }
+          ]
+        },
+        "fallbackOutput": 4
+      },
+      "id": "region_router",
+      "name": "Regional Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.endpoint}}/api/v2/sync",
+        "method": "POST",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Region-Code",
+              "value": "UAE"
+            },
+            {
+              "name": "X-Sync-ID",
+              "value": "={{$json.syncId}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "={{JSON.stringify($json.data)}}"
+            },
+            {
+              "name": "compliance",
+              "value": "={{JSON.stringify($json.complianceStatus)}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 5000
+          }
+        }
+      },
+      "id": "uae_sync",
+      "name": "UAE Region Sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.endpoint}}/api/v2/sync",
+        "method": "POST",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Region-Code",
+              "value": "IND"
+            },
+            {
+              "name": "X-Sync-ID",
+              "value": "={{$json.syncId}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "={{JSON.stringify($json.data)}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "ind_sync",
+      "name": "India Region Sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 250]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.endpoint}}/api/v2/sync",
+        "method": "POST",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Region-Code",
+              "value": "USA"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "={{JSON.stringify($json.data)}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "usa_sync",
+      "name": "USA Region Sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.endpoint}}/api/v2/sync",
+        "method": "POST",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Region-Code",
+              "value": "EUR"
+            },
+            {
+              "name": "X-GDPR-Compliant",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "={{JSON.stringify($json.data)}}"
+            },
+            {
+              "name": "gdprConsent",
+              "value": "={{$json.gdprConsent}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "eur_sync",
+      "name": "Europe Region Sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 550]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge results from all regions\nconst items = $input.all();\nconst syncResults = [];\nconst conflicts = [];\n\nitems.forEach(item => {\n  const result = item.json;\n  syncResults.push({\n    region: result.region,\n    status: result.statusCode === 200 ? 'success' : 'failed',\n    response: result.body,\n    timestamp: new Date().toISOString()\n  });\n  \n  // Check for conflicts\n  if (result.body && result.body.conflict) {\n    conflicts.push({\n      region: result.region,\n      conflictType: result.body.conflictType,\n      localVersion: result.body.localVersion,\n      remoteVersion: result.body.remoteVersion\n    });\n  }\n});\n\nreturn [{\n  json: {\n    syncId: items[0]?.json?.syncId || crypto.randomUUID(),\n    syncResults,\n    conflicts,\n    hasConflicts: conflicts.length > 0\n  }\n}];"
+      },
+      "id": "result_merger",
+      "name": "Sync Results Merger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a conflict resolution specialist. Analyze data conflicts between regions and recommend resolution strategies based on:\n1. Timestamp (newest wins)\n2. Data completeness\n3. Regional priority\n4. Business rules\n\nReturn JSON: {\"resolution\": \"strategy\", \"winningVersion\": {}, \"actions\": []}"
+            },
+            {
+              "role": "user",
+              "content": "Resolve conflicts: {{JSON.stringify($json.conflicts)}}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "conflict_handler",
+      "name": "AI Conflict Handler",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [2050, 400],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all sync results\nconst results = $input.all()[0].json;\nconst conflictResolution = $input.all()[1]?.json || null;\n\nconst summary = {\n  syncId: results.syncId,\n  timestamp: new Date().toISOString(),\n  totalRegions: results.syncResults.length,\n  successfulSyncs: results.syncResults.filter(r => r.status === 'success').length,\n  failedSyncs: results.syncResults.filter(r => r.status === 'failed').length,\n  conflicts: results.conflicts.length,\n  conflictResolution: conflictResolution,\n  detailedResults: results.syncResults\n};\n\nreturn [{\n  json: summary\n}];"
+      },
+      "id": "sync_aggregator",
+      "name": "Sync Results Aggregator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "sync_audit_log",
+        "columns": "sync_id,timestamp,regions_synced,success_count,failure_count,conflicts_count,conflict_resolution,detailed_results,compliance_report",
+        "options": {
+          "queryName": "insert_audit_log"
+        }
+      },
+      "id": "audit_logger",
+      "name": "Audit Logger",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.failedSyncs}}",
+              "operation": "largerEqual",
+              "value2": 1
+            }
+          ],
+          "boolean": [
+            {
+              "value1": "={{$json.conflicts > 0}}",
+              "value2": true
+            }
+          ]
+        },
+        "combineOperation": "any"
+      },
+      "id": "alert_check",
+      "name": "Check Alert Conditions",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2650, 300]
+    },
+    {
+      "parameters": {
+        "resource": "channel",
+        "operation": "send",
+        "channel": "#sync-alerts",
+        "text": "🚨 *Regional Sync Alert*\n\nSync ID: `{{$json.syncId}}`\nTimestamp: {{$json.timestamp}}\n\n*Summary:*\n• Regions: {{$json.totalRegions}}\n• ✅ Success: {{$json.successfulSyncs}}\n• ❌ Failed: {{$json.failedSyncs}}\n• ⚠️ Conflicts: {{$json.conflicts}}\n\n{{#if $json.conflictResolution}}*Conflict Resolution:*\n{{$json.conflictResolution.resolution}}{{/if}}",
+        "options": {
+          "attachments": [
+            {
+              "color": "{{$json.failedSyncs > 0 ? '#ff0000' : '#00ff00'}}",
+              "title": "Detailed Sync Report",
+              "text": "{{JSON.stringify($json.detailedResults, null, 2)}}",
+              "footer": "Cross-Regional Sync System"
+            }
+          ]
+        }
+      },
+      "id": "slack_alert",
+      "name": "Send Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [2850, 200]
+    },
+    {
+      "parameters": {
+        "level": "info",
+        "message": "Cross-regional sync completed",
+        "metadata": "={{JSON.stringify($json)}}"
+      },
+      "id": "log_completion",
+      "name": "Log Completion",
+      "type": "n8n-nodes-base.logger",
+      "typeVersion": 1,
+      "position": [2850, 400]
+    }
+  ],
+  "connections": {
+    "Sync Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Regional Configurations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Regional Configurations": {
+      "main": [
+        [
+          {
+            "node": "Fetch Changed Data Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Changed Data Queue": {
+      "main": [
+        [
+          {
+            "node": "Compliance Check Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compliance Check Agent": {
+      "main": [
+        [
+          {
+            "node": "Data Transform & Masking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Transform & Masking": {
+      "main": [
+        [
+          {
+            "node": "Regional Data Splitter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Regional Data Splitter": {
+      "main": [
+        [
+          {
+            "node": "Regional Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Regional Router": {
+      "main": [
+        [
+          {
+            "node": "UAE Region Sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "India Region Sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "USA Region Sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Europe Region Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UAE Region Sync": {
+      "main": [
+        [
+          {
+            "node": "Sync Results Merger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "India Region Sync": {
+      "main": [
+        [
+          {
+            "node": "Sync Results Merger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "USA Region Sync": {
+      "main": [
+        [
+          {
+            "node": "Sync Results Merger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Europe Region Sync": {
+      "main": [
+        [
+          {
+            "node": "Sync Results Merger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Results Merger": {
+      "main": [
+        [
+          {
+            "node": "AI Conflict Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Conflict Handler": {
+      "main": [
+        [
+          {
+            "node": "Sync Results Aggregator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Results Aggregator": {
+      "main": [
+        [
+          {
+            "node": "Audit Logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Logger": {
+      "main": [
+        [
+          {
+            "node": "Check Alert Conditions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Alert Conditions": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "regional-sync-error-handler",
+    "maxExecutionDuration": 300,
+    "executionTimeout": 300
+  }
+}

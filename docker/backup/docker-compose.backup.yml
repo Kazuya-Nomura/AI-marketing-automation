@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  postgres-backup:
+    image: postgres:15
+    container_name: fineacers-postgres-backup
+    environment:
+      - PGHOST=postgres
+      - PGUSER=${DB_USER}
+      - PGPASSWORD=${DB_PASSWORD}
+      - PGDATABASE=${DB_NAME}
+    volumes:
+      - ./backup-scripts:/scripts
+      - backup-data:/backups
+    command: /scripts/postgres-backup.sh
+    depends_on:
+      - postgres
+    networks:
+      - fineacers-network
+
+  redis-backup:
+    image: redis:7-alpine
+    container_name: fineacers-redis-backup
+    volumes:
+      - ./backup-scripts:/scripts
+      - backup-data:/backups
+      - redis-data:/data
+    command: /scripts/redis-backup.sh
+    networks:
+      - fineacers-network
+
+  n8n-backup:
+    image: n8nio/n8n
+    container_name: fineacers-n8n-backup
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=false
+    volumes:
+      - ./backup-scripts:/scripts
+      - backup-data:/backups
+      - n8n-data:/home/node/.n8n
+    command: /scripts/n8n-backup.sh
+    networks:
+      - fineacers-network
+
+  backup-manager:
+    image: rclone/rclone:latest
+    container_name: fineacers-backup-manager
+    environment:
+      - RCLONE_CONFIG=/config/rclone.conf
+      - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-0 2 * * *}
+      - RETENTION_DAYS=${RETENTION_DAYS:-30}
+    volumes:
+      - ./rclone.conf:/config/rclone.conf
+      - backup-data:/backups
+      - ./backup-scripts:/scripts
+    command: /scripts/backup-manager.sh
+    networks:
+      - fineacers-network
+
+volumes:
+  backup-data:
+    driver: local
+
+networks:
+  fineacers-network:
+    external: true

@@ -1,0 +1,112 @@
+{
+  "name": "Master Error Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "error-webhook",
+        "responseMode": "onReceived"
+      },
+      "name": "Error Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "error_id",
+              "value": "={{$guid}}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{$now}}"
+            }
+          ]
+        }
+      },
+      "name": "Set Error Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node[\"Error Webhook\"].json[\"error\"][\"type\"]}}",
+              "operation": "equals",
+              "value2": "api_failure"
+            }
+          ]
+        }
+      },
+      "name": "Check Error Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const errorData = $node[\"Error Webhook\"].json;\nconst retryCount = errorData.retryCount || 0;\nconst maxRetries = 3;\nconst backoffDelay = Math.pow(2, retryCount) * 1000;\n\nif (retryCount < maxRetries) {\n  return {\n    retry: true,\n    delay: backoffDelay,\n    attemptNumber: retryCount + 1\n  };\n} else {\n  return {\n    retry: false,\n    escalate: true\n  };\n}"
+      },
+      "name": "Calculate Retry Logic",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO error_logs (error_id, workflow_id, error_type, error_message, error_data, retry_count, status) VALUES ('{{$node[\"Set Error Context\"].json[\"error_id\"]}}', '{{$node[\"Error Webhook\"].json[\"workflowId\"]}}', '{{$node[\"Error Webhook\"].json[\"error\"][\"type\"]}}', '{{$node[\"Error Webhook\"].json[\"error\"][\"message\"]}}', '{{JSON.stringify($node[\"Error Webhook\"].json)}}', {{$node[\"Error Webhook\"].json[\"retryCount\"] || 0}}, 'logged')"
+      },
+      "name": "Log Error to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "amount": "={{$node[\"Calculate Retry Logic\"].json[\"delay\"]}}",
+        "unit": "milliseconds"
+      },
+      "name": "Wait for Backoff",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SYSTEM_EMAIL}}",
+        "toEmail": "={{$env.ADMIN_EMAIL}}",
+        "subject": "Critical Error in Workflow: {{$node[\"Error Webhook\"].json[\"workflowName\"]}}",
+        "html": "<h3>Error Details</h3><p><strong>Error ID:</strong> {{$node[\"Set Error Context\"].json[\"error_id\"]}}</p><p><strong>Workflow:</strong> {{$node[\"Error Webhook\"].json[\"workflowName\"]}}</p><p><strong>Error Type:</strong> {{$node[\"Error Webhook\"].json[\"error\"][\"type\"]}}</p><p><strong>Message:</strong> {{$node[\"Error Webhook\"].json[\"error\"][\"message\"]}}</p><p><strong>Time:</strong> {{$node[\"Set Error Context\"].json[\"timestamp\"]}}</p><h4>Full Error Data:</h4><pre>{{JSON.stringify($node[\"Error Webhook\"].json, null, 2)}}</pre>"
+      },
+      "name": "Alert Admin",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/workflows/retry",
+        "method": "POST",
+        "bodyParametersJson": "{\"workflowId\": \"{{$node[\"Error Webhook\"].json[\"workflowId\"]}}\", \"executionId\": \"{{$node[\"Error Webhook\"].json[\"executionId\"]}}\", \"retryCount\": {{$node[\"Calculate Retry Logic\"].json[\"attemptNumber\"]}}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Trigger Retry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1250, 200]
+    }
+  ],
+  "settings": {
+    "errorWorkflow": "self",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": true,
+    "saveDataErrorExecution": true
+  }
+}

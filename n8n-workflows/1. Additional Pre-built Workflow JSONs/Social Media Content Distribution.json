@@ -1,0 +1,79 @@
+{
+  "name": "Social Media Content Distribution",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "social-content-webhook",
+        "responseMode": "onReceived",
+        "responseData": "allEntries"
+      },
+      "name": "Content Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/ai/generate-social-content",
+        "method": "POST",
+        "bodyParametersJson": "{\"property\": {{JSON.stringify($node[\"Content Webhook\"].json[\"property\"])}}, \"platform\": \"multi\", \"tone\": \"professional\"}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Generate AI Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "post",
+        "operation": "create",
+        "pageId": "={{$env.FACEBOOK_PAGE_ID}}",
+        "message": "={{$node[\"Generate AI Content\"].json[\"facebook\"]}}",
+        "additionalFields": {
+          "link": "={{$node[\"Content Webhook\"].json[\"property\"][\"link\"]}}",
+          "published": true
+        }
+      },
+      "name": "Post to Facebook",
+      "type": "n8n-nodes-base.facebook",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "resource": "media",
+        "operation": "create",
+        "accountId": "={{$env.INSTAGRAM_ACCOUNT_ID}}",
+        "imageUrl": "={{$node[\"Content Webhook\"].json[\"property\"][\"image\"]}}",
+        "caption": "={{$node[\"Generate AI Content\"].json[\"instagram\"]}}"
+      },
+      "name": "Post to Instagram",
+      "type": "n8n-nodes-base.instagram",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "text": "={{$node[\"Generate AI Content\"].json[\"linkedin\"]}}",
+        "shareMediaCategory": "NONE",
+        "visibility": "PUBLIC"
+      },
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO social_posts (property_id, platforms, content, status, posted_at) VALUES ('{{$node[\"Content Webhook\"].json[\"property\"][\"id\"]}}', ARRAY['facebook', 'instagram', 'linkedin'], '{{JSON.stringify($node[\"Generate AI Content\"].json)}}', 'posted', NOW())"
+      },
+      "name": "Log Post",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ]
+}

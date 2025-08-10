@@ -1,0 +1,424 @@
+openapi: 3.0.0
+info:
+  title: FineAcers AI Marketing Automation API
+  version: 1.0.0
+  description: API for luxury real estate marketing automation platform
+  contact:
+    name: FineAcers Support
+    email: support@fineacers.com
+  license:
+    name: Proprietary
+    
+servers:
+  - url: https://api.fineacers.com/v1
+    description: Production server
+  - url: https://staging-api.fineacers.com/v1
+    description: Staging server
+  - url: http://localhost:3000/api
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+
+  /leads:
+    get:
+      summary: Get all leads
+      tags: [Leads]
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [new, contacted, qualified, converted]
+        - in: query
+          name: temperature
+          schema:
+            type: string
+            enum: [hot, warm, cold]
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        200:
+          description: List of leads
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Lead'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+    
+    post:
+      summary: Create a new lead
+      tags: [Leads]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeadInput'
+      responses:
+        201:
+          description: Lead created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Lead'
+        400:
+          $ref: '#/components/responses/BadRequest'
+
+  /leads/bulk-upload:
+    post:
+      summary: Bulk upload leads from CSV
+      tags: [Leads]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                csv:
+                  type: string
+                  format: binary
+      responses:
+        200:
+          description: Bulk upload completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      processed:
+                        type: integer
+                      failed:
+                        type: integer
+
+  /campaigns:
+    get:
+      summary: Get all campaigns
+      tags: [Campaigns]
+      responses:
+        200:
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Campaign'
+    
+    post:
+      summary: Create a new campaign
+      tags: [Campaigns]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignInput'
+      responses:
+        201:
+          description: Campaign created successfully
+
+  /gdpr/consent:
+    get:
+      summary: Get user consent status
+      tags: [GDPR]
+      responses:
+        200:
+          description: Consent status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  consents:
+                    type: object
+                    properties:
+                      marketing:
+                        type: boolean
+                      analytics:
+                        type: boolean
+                      profiling:
+                        type: boolean
+                      thirdParty:
+                        type: boolean
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PageParam:
+      in: query
+      name: page
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    
+    LimitParam:
+      in: query
+      name: limit
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [admin, manager, bdm]
+        phone:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    Lead:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+          enum: [new, contacted, qualified, converted]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        temperature:
+          type: string
+          enum: [hot, warm, cold]
+        budget_range:
+          type: string
+        interested_location:
+          type: string
+        notes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    LeadInput:
+      type: object
+      required:
+        - name
+        - phone
+      properties:
+        name:
+          type: string
+          minLength: 2
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          pattern: '^[0-9]{10,15}$'
+        source:
+          type: string
+        budget_range:
+          type: string
+        interested_location:
+          type: string
+        notes:
+          type: string
+
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+          enum: [email, sms, whatsapp, multi-channel]
+        status:
+          type: string
+          enum: [draft, scheduled, active, completed]
+        content:
+          type: object
+        schedule:
+          type: object
+        performance:
+          type: object
+          properties:
+            sent:
+              type: integer
+            delivered:
+              type: integer
+            opened:
+              type: integer
+            clicked:
+              type: integer
+            converted:
+              type: integer
+
+    CampaignInput:
+      type: object
+      required:
+        - name
+        - type
+        - channels
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        channels:
+          type: array
+          items:
+            type: string
+        audience:
+          type: string
+        content:
+          type: object
+        schedule:
+          type: object
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              details:
+                type: array
+                items:
+                  type: string
+    
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Unauthorized access"
+    
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Resource not found"

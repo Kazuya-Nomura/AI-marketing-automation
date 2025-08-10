@@ -1,0 +1,565 @@
+{
+  "name": "Multi-Channel Content Distribution Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "content-distribution-webhook",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "firstEntryJson"
+        }
+      },
+      "id": "campaign_trigger",
+      "name": "Campaign Trigger API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "content-dist-001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.contentType}}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{$json.property}}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{$json.targetChannels}}",
+              "operation": "isNotEmpty"
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "content_validator",
+      "name": "Content Type Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert luxury real estate content creator. Generate compelling marketing content optimized for multiple channels. Return JSON with platform-specific content."
+            },
+            {
+              "role": "user",
+              "content": "Create marketing content for:\nProperty: {{$json.property.name}}\nLocation: {{$json.property.location}}\nROI: {{$json.property.roi}}%\nPrice: {{$json.property.price}}\nTarget Audience: {{$json.targetAudience}}\nChannels: {{$json.targetChannels}}\n\nGenerate:\n1. Headlines (5 variations)\n2. Descriptions (3 lengths: short, medium, long)\n3. CTAs (3 variations)\n4. Hashtags for each platform\n5. Image descriptions for AI generation"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1500,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "ai_content_generator",
+      "name": "AI Content Generator (GPT-4)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "model": "dall-e-3",
+        "prompt": "={{$json.aiContent.imagePrompts.primary}}",
+        "size": "1024x1024",
+        "quality": "hd",
+        "style": "natural",
+        "responseFormat": "url"
+      },
+      "id": "dalle_image_gen",
+      "name": "DALL-E 3 Image Generation",
+      "type": "@n8n/n8n-nodes-langchain.openAiDallE",
+      "typeVersion": 1,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.STABLE_DIFFUSION_API}}/generate",
+        "method": "POST",
+        "bodyParametersJson": "{\n  \"prompt\": \"{{$json.aiContent.imagePrompts.secondary}}\",\n  \"negative_prompt\": \"blur, low quality, distorted\",\n  \"width\": 1024,\n  \"height\": 1024,\n  \"samples\": 2,\n  \"steps\": 30\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.STABLE_DIFFUSION_KEY}}\",\n  \"Content-Type\": \"application/json\"\n}"
+      },
+      "id": "stable_diffusion_gen",
+      "name": "Stable Diffusion Image Gen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.RUNWAY_API}}/generate-video",
+        "method": "POST",
+        "bodyParametersJson": "{\n  \"prompt\": \"{{$json.aiContent.videoPrompt}}\",\n  \"duration\": 10,\n  \"aspect_ratio\": \"16:9\",\n  \"motion_intensity\": 0.7\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.RUNWAY_API_KEY}}\"\n}"
+      },
+      "id": "video_generation",
+      "name": "Stable Video Generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "merge_media",
+              "name": "mediaAssets",
+              "value": "={\n  \"primaryImage\": {{$node[\"DALL-E 3 Image Generation\"].json.url}},\n  \"secondaryImages\": {{$node[\"Stable Diffusion Image Gen\"].json.images}},\n  \"video\": {{$node[\"Stable Video Generation\"].json.video_url}}\n}",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "merge_assets",
+      "name": "Merge Media Assets",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "rules": {
+          "rules": [
+            {
+              "operation": "contains",
+              "value1": "={{$json.targetChannels}}",
+              "value2": "ab_test",
+              "output": 0
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "ab_test_router",
+      "name": "A/B Testing Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "ab_variant_splitter",
+      "name": "A/B Variant Generator",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "resource": "post",
+        "operation": "create",
+        "pageId": "={{$env.FACEBOOK_PAGE_ID}}",
+        "message": "={{$json.aiContent.facebook.description}}",
+        "additionalFields": {
+          "link": "={{$json.property.landingPage}}",
+          "picture": "={{$json.mediaAssets.primaryImage}}",
+          "published": true
+        }
+      },
+      "id": "facebook_post",
+      "name": "Facebook Distribution",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [1650, 100]
+    },
+    {
+      "parameters": {
+        "resource": "media",
+        "operation": "upload",
+        "businessAccountId": "={{$env.INSTAGRAM_BUSINESS_ID}}",
+        "mediaType": "image",
+        "imageUrl": "={{$json.mediaAssets.primaryImage}}",
+        "caption": "={{$json.aiContent.instagram.caption}}\n\n{{$json.aiContent.instagram.hashtags}}",
+        "additionalFields": {
+          "publishNow": true
+        }
+      },
+      "id": "instagram_post",
+      "name": "Instagram Distribution",
+      "type": "n8n-nodes-base.instagram",
+      "typeVersion": 1,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "resource": "share",
+        "operation": "create",
+        "text": "={{$json.aiContent.linkedin.post}}",
+        "additionalFields": {
+          "media": {
+            "mediaUrl": "={{$json.mediaAssets.primaryImage}}",
+            "title": "={{$json.aiContent.linkedin.headline}}"
+          },
+          "visibility": "PUBLIC"
+        }
+      },
+      "id": "linkedin_post",
+      "name": "LinkedIn Distribution",
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMedia",
+        "phoneNumber": "={{$json.leads.phone}}",
+        "messageType": "image",
+        "mediaUrl": "={{$json.mediaAssets.primaryImage}}",
+        "caption": "={{$json.aiContent.whatsapp.message}}"
+      },
+      "id": "whatsapp_distribution",
+      "name": "WhatsApp Distribution",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{$json.aiContent.youtube.title}}",
+        "description": "={{$json.aiContent.youtube.description}}",
+        "videoUrl": "={{$json.mediaAssets.video}}",
+        "privacyStatus": "public",
+        "tags": "={{$json.aiContent.youtube.tags}}"
+      },
+      "id": "youtube_upload",
+      "name": "YouTube Distribution",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [1650, 500]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SMTP_FROM}}",
+        "toEmail": "={{$json.leads.email}}",
+        "subject": "={{$json.aiContent.email.subject}}",
+        "html": true,
+        "htmlBody": "={{$json.aiContent.email.template}}",
+        "attachments": [
+          {
+            "name": "property-showcase.jpg",
+            "url": "={{$json.mediaAssets.primaryImage}}"
+          }
+        ]
+      },
+      "id": "email_distribution",
+      "name": "Email Distribution",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1650, 600]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "content_distribution",
+        "columns": "campaign_id,channel,post_id,content,media_urls,posted_at,status",
+        "options": {
+          "queryName": "track_distribution"
+        }
+      },
+      "id": "track_distribution",
+      "name": "Track Distribution",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/analytics/track-engagement",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"campaignId\": \"{{$json.campaignId}}\",\n  \"channel\": \"{{$json.channel}}\",\n  \"postId\": \"{{$json.postId}}\",\n  \"metrics\": {\n    \"impressions\": 0,\n    \"clicks\": 0,\n    \"engagements\": 0\n  },\n  \"timestamp\": \"{{$now}}\"\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.API_TOKEN}}\"\n}"
+      },
+      "id": "start_tracking",
+      "name": "Start Performance Tracking",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "intervalSize": 3600,
+        "interval": "seconds",
+        "triggerAtStart": false
+      },
+      "id": "performance_monitor",
+      "name": "Performance Monitor (Hourly)",
+      "type": "n8n-nodes-base.interval",
+      "typeVersion": 1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/analytics/collect-metrics",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"campaignId\": \"{{$json.campaignId}}\",\n  \"channels\": {{$json.targetChannels}}\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.API_TOKEN}}\"\n}"
+      },
+      "id": "collect_metrics",
+      "name": "Collect Platform Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2450, 300]
+    }
+  ],
+  "connections": {
+    "Campaign Trigger API": {
+      "main": [
+        [
+          {
+            "node": "Content Type Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Type Router": {
+      "main": [
+        [
+          {
+            "node": "AI Content Generator (GPT-4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Content Generator (GPT-4)": {
+      "main": [
+        [
+          {
+            "node": "DALL-E 3 Image Generation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stable Diffusion Image Gen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stable Video Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DALL-E 3 Image Generation": {
+      "main": [
+        [
+          {
+            "node": "Merge Media Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stable Diffusion Image Gen": {
+      "main": [
+        [
+          {
+            "node": "Merge Media Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stable Video Generation": {
+      "main": [
+        [
+          {
+            "node": "Merge Media Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Media Assets": {
+      "main": [
+        [
+          {
+            "node": "A/B Testing Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A/B Testing Router": {
+      "main": [
+        [
+          {
+            "node": "A/B Variant Generator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Facebook Distribution",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Instagram Distribution",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "LinkedIn Distribution",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WhatsApp Distribution",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "YouTube Distribution",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Distribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facebook Distribution": {
+      "main": [
+        [
+          {
+            "node": "Track Distribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram Distribution": {
+      "main": [
+        [
+          {
+            "node": "Track Distribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn Distribution": {
+      "main": [
+        [
+          {
+            "node": "Track Distribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Distribution": {
+      "main": [
+        [
+          {
+            "node": "Track Distribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube Distribution": {
+      "main": [
+        [
+          {
+            "node": "Track Distribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Distribution": {
+      "main": [
+        [
+          {
+            "node": "Track Distribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Distribution": {
+      "main": [
+        [
+          {
+            "node": "Start Performance Tracking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Performance Tracking": {
+      "main": [
+        [
+          {
+            "node": "Performance Monitor (Hourly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Performance Monitor (Hourly)": {
+      "main": [
+        [
+          {
+            "node": "Collect Platform Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow-id"
+  }
+}

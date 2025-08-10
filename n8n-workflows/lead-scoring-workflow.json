@@ -1,0 +1,99 @@
+{
+  "name": "Lead Scoring and Classification",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-score",
+        "responseMode": "onReceived",
+        "responseData": "allEntries"
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://backend:3000/api/ai/score-lead",
+        "method": "POST",
+        "bodyParametersJson": "={{ JSON.stringify($node[\"Webhook\"].json) }}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Score Lead with AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$node[\"Score Lead with AI\"].json[\"score\"]}}",
+              "operation": "larger",
+              "value2": 70
+            }
+          ]
+        }
+      },
+      "name": "IF Hot Lead",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "@{{$node[\"Webhook\"].json[\"phone\"]}}",
+        "text": "Hi {{$node[\"Webhook\"].json[\"name\"]}}, I noticed your interest in our {{$node[\"Webhook\"].json[\"interested_location\"]}} property. With your budget of {{$node[\"Webhook\"].json[\"budget_range\"]}}, I have the perfect unit for you. Can we schedule a quick call today?",
+        "additionalFields": {}
+      },
+      "name": "Send WhatsApp - Hot",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [850, 200]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Score Lead with AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Lead with AI": {
+      "main": [
+        [
+          {
+            "node": "IF Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Hot Lead": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp - Hot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Email Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

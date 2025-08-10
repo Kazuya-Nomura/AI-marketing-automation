@@ -1,0 +1,112 @@
+{
+  "name": "No-Show Meeting Follow-up",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 16,
+              "minute": 30
+            }
+          ]
+        }
+      },
+      "name": "Check No-Shows",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT m.*, l.name, l.email, l.phone, u.name as rep_name FROM meetings m JOIN leads l ON m.lead_id = l.id JOIN users u ON m.user_id = u.id WHERE m.status = 'scheduled' AND m.scheduled_at < NOW() - INTERVAL '30 minutes' AND m.scheduled_at > NOW() - INTERVAL '2 hours'",
+        "additionalFields": {}
+      },
+      "name": "Get No-Show Meetings",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Process Each Meeting",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "@{{$node[\"Process Each Meeting\"].json[\"phone\"]}}",
+        "templateName": "meeting_no_show",
+        "templateParameters": {
+          "body": [
+            {
+              "type": "text",
+              "text": "{{$node[\"Process Each Meeting\"].json[\"name\"]}}"
+            },
+            {
+              "type": "text",
+              "text": "{{$node[\"Process Each Meeting\"].json[\"rep_name\"]}}"
+            },
+            {
+              "type": "text",
+              "text": "{{$env.RESCHEDULE_LINK}}/{{$node[\"Process Each Meeting\"].json[\"id\"]}}"
+            }
+          ]
+        }
+      },
+      "name": "Send WhatsApp Template",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.FROM_EMAIL}}",
+        "toEmail": "={{$node[\"Process Each Meeting\"].json[\"email\"]}}",
+        "subject": "We Missed You Today - Let's Reschedule",
+        "html": "<p>Hi {{$node[\"Process Each Meeting\"].json[\"name\"]}},</p><p>We noticed you couldn't make it to today's meeting. No worries! Click <a href='{{$env.RESCHEDULE_LINK}}/{{$node[\"Process Each Meeting\"].json[\"id\"]}}'>here</a> to pick a new time that works better for you.</p><p>Best regards,<br>{{$node[\"Process Each Meeting\"].json[\"rep_name\"]}}</p>"
+      },
+      "name": "Send Email",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE meetings SET status = 'no_show', updated_at = NOW() WHERE id = '{{$node[\"Process Each Meeting\"].json[\"id\"]}}'; INSERT INTO activities (type, lead_id, user_id, description) VALUES ('no_show_follow_up', '{{$node[\"Process Each Meeting\"].json[\"lead_id\"]}}', '{{$node[\"Process Each Meeting\"].json[\"user_id\"]}}', 'Automated follow-up sent')"
+      },
+      "name": "Update Meeting Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Check No-Shows": {
+      "main": [[{"node": "Get No-Show Meetings", "type": "main", "index": 0}]]
+    },
+    "Get No-Show Meetings": {
+      "main": [[{"node": "Process Each Meeting", "type": "main", "index": 0}]]
+    },
+    "Process Each Meeting": {
+      "main": [
+        [
+          {"node": "Send WhatsApp Template", "type": "main", "index": 0},
+          {"node": "Send Email", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Send WhatsApp Template": {
+      "main": [[{"node": "Update Meeting Status", "type": "main", "index": 0}]]
+    },
+    "Send Email": {
+      "main": [[{"node": "Update Meeting Status", "type": "main", "index": 0}]]
+    }
+  }
+}

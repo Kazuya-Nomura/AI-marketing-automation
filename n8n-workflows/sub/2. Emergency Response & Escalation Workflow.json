@@ -1,0 +1,630 @@
+{
+  "name": "Emergency Response & Escalation System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "emergency-alert",
+        "responseMode": "onReceived",
+        "responseCode": 200,
+        "responseData": "success"
+      },
+      "name": "Error Detection Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 350],
+      "id": "webhook_001",
+      "webhookId": "emergency-response-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "const alert = $json;\n\n// Categorize the error/alert\nlet errorType = 'unknown';\nlet severity = 'medium';\nlet category = 'system';\n\nif (alert.type) {\n  errorType = alert.type;\n} else if (alert.error?.code) {\n  // Determine type from error code\n  if (alert.error.code >= 500) {\n    errorType = 'system_failure';\n    severity = 'critical';\n  } else if (alert.error.code === 'URGENT_LEAD') {\n    errorType = 'hot_lead_alert';\n    severity = 'high';\n    category = 'business';\n  } else if (alert.error.code === 'SERVICE_DOWN') {\n    errorType = 'service_down';\n    severity = 'critical';\n  } else if (alert.error.code.includes('DATA')) {\n    errorType = 'data_error';\n    severity = 'high';\n    category = 'data';\n  }\n}\n\n// Extract additional context\nconst context = {\n  timestamp: new Date().toISOString(),\n  source: alert.source || 'unknown',\n  service: alert.service || 'unknown',\n  userId: alert.userId || null,\n  leadId: alert.leadId || null,\n  errorMessage: alert.error?.message || alert.message || 'No message provided',\n  stackTrace: alert.error?.stack || null,\n  metadata: alert.metadata || {}\n};\n\nreturn {\n  errorType,\n  severity,\n  category,\n  context,\n  originalAlert: alert\n};"
+      },
+      "name": "Categorize Error",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [450, 350],
+      "id": "func_001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node[\"Categorize Error\"].json[\"errorType\"]}}",
+              "operation": "equals",
+              "value2": "system_failure"
+            },
+            {
+              "value1": "={{$node[\"Categorize Error\"].json[\"errorType\"]}}",
+              "operation": "equals",
+              "value2": "hot_lead_alert"
+            },
+            {
+              "value1": "={{$node[\"Categorize Error\"].json[\"errorType\"]}}",
+              "operation": "equals",
+              "value2": "service_down"
+            },
+            {
+              "value1": "={{$node[\"Categorize Error\"].json[\"errorType\"]}}",
+              "operation": "equals",
+              "value2": "data_error"
+            }
+          ]
+        },
+        "combineOperation": "any"
+      },
+      "name": "Route by Error Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [650, 350],
+      "id": "switch_001"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "circuit_breaker:{{$node[\"Categorize Error\"].json[\"context\"][\"service\"]}}"
+      },
+      "name": "Check Circuit Breaker",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [850, 200],
+      "id": "redis_001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node[\"Check Circuit Breaker\"].json[\"value\"]}}",
+              "operation": "equals",
+              "value2": "OPEN"
+            }
+          ]
+        }
+      },
+      "name": "Is Circuit Open?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 200],
+      "id": "if_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/fallback/activate",
+        "method": "POST",
+        "bodyParametersJson": "{\"service\": \"{{$node[\"Categorize Error\"].json[\"context\"][\"service\"]}}\", \"reason\": \"Circuit breaker open\", \"duration\": 300}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Activate Fallback Service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1250, 150],
+      "id": "http_001"
+    },
+    {
+      "parameters": {
+        "functionCode": "const context = $node[\"Categorize Error\"].json.context;\nconst retryCount = context.metadata.retryCount || 0;\n\n// Exponential backoff calculation\nconst backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 30000); // Max 30 seconds\n\nreturn {\n  shouldRetry: retryCount < 3,\n  retryCount: retryCount + 1,\n  backoffDelay,\n  nextRetryAt: new Date(Date.now() + backoffDelay).toISOString()\n};"
+      },
+      "name": "Calculate Retry Strategy",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [1250, 250],
+      "id": "func_002"
+    },
+    {
+      "parameters": {
+        "amount": "={{$node[\"Calculate Retry Strategy\"].json[\"backoffDelay\"]}}",
+        "unit": "milliseconds"
+      },
+      "name": "Wait for Backoff",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1450, 250],
+      "condition": {
+        "enabled": "={{$node[\"Calculate Retry Strategy\"].json[\"shouldRetry\"]}}"
+      },
+      "id": "wait_001"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT l.*, u.full_name as bdm_name, u.phone as bdm_phone, m.full_name as manager_name, m.phone as manager_phone FROM leads l JOIN users u ON l.user_id = u.id LEFT JOIN users m ON u.manager_id = m.id WHERE l.id = $1",
+        "additionalFields": {
+          "queryParams": "{{$node[\"Categorize Error\"].json[\"context\"][\"leadId\"]}}"
+        }
+      },
+      "name": "Get Lead & Team Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [850, 350],
+      "id": "db_001"
+    },
+    {
+      "parameters": {
+        "resource": "SMS",
+        "operation": "send",
+        "from": "{{$env.TWILIO_PHONE}}",
+        "to": "={{$node[\"Get Lead & Team Details\"].json[0][\"manager_phone\"]}}",
+        "message": "🚨 URGENT: Hot lead {{$node[\"Get Lead & Team Details\"].json[0][\"name\"]}} requires immediate attention! Score: {{$node[\"Get Lead & Team Details\"].json[0][\"score\"]}}/100. Budget: {{$node[\"Get Lead & Team Details\"].json[0][\"budget_range\"]}}. Contact ASAP!"
+      },
+      "name": "SMS to Sales Manager",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "id": "twilio_001"
+    },
+    {
+      "parameters": {
+        "channel": "@{{$node[\"Get Lead & Team Details\"].json[0][\"bdm_phone\"]}}",
+        "messageType": "text",
+        "message": "🔥 *HOT LEAD ALERT*\n\nLead: {{$node[\"Get Lead & Team Details\"].json[0][\"name\"]}}\nScore: {{$node[\"Get Lead & Team Details\"].json[0][\"score\"]}}/100\nBudget: {{$node[\"Get Lead & Team Details\"].json[0][\"budget_range\"]}}\nLocation: {{$node[\"Get Lead & Team Details\"].json[0][\"interested_location\"]}}\n\n⚡ *Action Required: Contact within 30 minutes!*\n\nView Details: {{$env.CRM_URL}}/leads/{{$node[\"Get Lead & Team Details\"].json[0][\"id\"]}}"
+      },
+      "name": "WhatsApp to BDM",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [1050, 350],
+      "id": "whatsapp_001"
+    },
+    {
+      "parameters": {
+        "fromEmail": "alerts@fineacers.com",
+        "toEmail": "={{$node[\"Get Lead & Team Details\"].json[0][\"bdm_email\"]}},{{$node[\"Get Lead & Team Details\"].json[0][\"manager_email\"]}}",
+        "subject": "🚨 Urgent: Hot Lead Alert - {{$node[\"Get Lead & Team Details\"].json[0][\"name\"]}}",
+        "html": "<h2 style='color: #ff4444;'>Hot Lead Requires Immediate Attention</h2><table style='border: 1px solid #ddd; padding: 10px;'><tr><td><strong>Lead Name:</strong></td><td>{{$node[\"Get Lead & Team Details\"].json[0][\"name\"]}}</td></tr><tr><td><strong>Score:</strong></td><td>{{$node[\"Get Lead & Team Details\"].json[0][\"score\"]}}/100</td></tr><tr><td><strong>Budget:</strong></td><td>{{$node[\"Get Lead & Team Details\"].json[0][\"budget_range\"]}}</td></tr><tr><td><strong>Location:</strong></td><td>{{$node[\"Get Lead & Team Details\"].json[0][\"interested_location\"]}}</td></tr><tr><td><strong>Contact:</strong></td><td>{{$node[\"Get Lead & Team Details\"].json[0][\"phone\"]}}</td></tr></table><p><a href='{{$env.CRM_URL}}/leads/{{$node[\"Get Lead & Team Details\"].json[0][\"id\"]}}' style='background: #ff4444; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>View Lead Details</a></p>",
+        "additionalFields": {
+          "priority": "high"
+        }
+      },
+      "name": "Email to Team",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "id": "email_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/alerts/create",
+        "method": "POST",
+        "bodyParametersJson": "{\"type\": \"hot_lead\", \"leadId\": \"{{$node[\"Get Lead & Team Details\"].json[0][\"id\"]}}\", \"priority\": \"urgent\", \"assignedTo\": \"{{$node[\"Get Lead & Team Details\"].json[0][\"user_id\"]}}\", \"message\": \"Hot lead requires immediate attention\", \"metadata\": {{JSON.stringify($node[\"Categorize Error\"].json)}}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.CRM_API_TOKEN}}\"}"
+      },
+      "name": "Create CRM Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1050, 450],
+      "id": "http_002"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/health/check",
+        "method": "GET",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}",
+        "options": {
+          "timeout": 5000,
+          "ignoreResponseCode": true
+        }
+      },
+      "name": "Service Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [850, 500],
+      "id": "http_003"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$node[\"Service Health Check\"].json[\"responseCode\"]}}",
+              "operation": "notEqual",
+              "value2": 200
+            }
+          ]
+        }
+      },
+      "name": "Service Unhealthy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 500],
+      "id": "if_002"
+    },
+    {
+      "parameters": {
+        "command": "docker restart {{$node[\"Categorize Error\"].json[\"context\"][\"service\"]}}"
+      },
+      "name": "Restart Service",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [1250, 450],
+      "credentials": {
+        "sshPassword": {
+          "id": "ssh_prod_server",
+          "name": "Production Server SSH"
+        }
+      },
+      "id": "ssh_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/services/switch-backup",
+        "method": "POST",
+        "bodyParametersJson": "{\"service\": \"{{$node[\"Categorize Error\"].json[\"context\"][\"service\"]}}\", \"primary\": false}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Switch to Backup Service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1250, 500],
+      "id": "http_004"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.KUBERNETES_API}}/api/v1/namespaces/production/deployments/{{$node[\"Categorize Error\"].json[\"context\"][\"service\"]}}/scale",
+        "method": "PATCH",
+        "bodyParametersJson": "{\"spec\": {\"replicas\": 5}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.K8S_TOKEN}}\", \"Content-Type\": \"application/strategic-merge-patch+json\"}"
+      },
+      "name": "Scale Kubernetes Resources",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1250, 550],
+      "id": "http_005"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as error_count, array_agg(DISTINCT table_name) as affected_tables FROM data_integrity_checks WHERE status = 'failed' AND checked_at > NOW() - INTERVAL '1 hour'",
+        "additionalFields": {}
+      },
+      "name": "Check Data Integrity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [850, 650],
+      "id": "db_002"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$node[\"Check Data Integrity\"].json[0][\"error_count\"]}}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "name": "Data Errors Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 650],
+      "id": "if_003"
+    },
+    {
+      "parameters": {
+        "functionCode": "const tables = $node[\"Check Data Integrity\"].json[0].affected_tables;\nconst validationRules = {\n  leads: [\n    \"SELECT COUNT(*) FROM leads WHERE email IS NOT NULL AND email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\\\.[A-Z|a-z]{2,}$'\",\n    \"SELECT COUNT(*) FROM leads WHERE phone IS NOT NULL AND LENGTH(phone) < 10\",\n    \"SELECT COUNT(*) FROM leads WHERE score NOT BETWEEN 0 AND 100\"\n  ],\n  campaigns: [\n    \"SELECT COUNT(*) FROM campaigns WHERE cost < 0\",\n    \"SELECT COUNT(*) FROM campaigns WHERE start_date > end_date\"\n  ],\n  users: [\n    \"SELECT COUNT(*) FROM users WHERE email IS NULL OR email = ''\",\n    \"SELECT COUNT(*) FROM users WHERE role NOT IN ('admin', 'manager', 'bdm', 'viewer')\"\n  ]\n};\n\nconst validationQueries = [];\ntables.forEach(table => {\n  if (validationRules[table]) {\n    validationQueries.push(...validationRules[table].map(q => ({ table, query: q })));\n  }\n});\n\nreturn { validationQueries };"
+      },
+      "name": "Generate Validation Queries",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [1250, 600],
+      "id": "func_003"
+    },
+    {
+      "parameters": {
+        "command": "pg_dump -h {{$env.DB_HOST}} -U {{$env.DB_USER}} -d {{$env.DB_NAME}} -t {{$node[\"Check Data Integrity\"].json[0][\"affected_tables\"].join(' -t ')}} -f /tmp/backup_$(date +%Y%m%d_%H%M%S).sql"
+      },
+      "name": "Backup Affected Tables",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [1250, 650],
+      "credentials": {
+        "sshPassword": {
+          "id": "ssh_db_server",
+          "name": "Database Server SSH"
+        }
+      },
+      "id": "ssh_002"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_logs (event_type, severity, source, details, created_at) VALUES ($1, $2, $3, $4, NOW())",
+        "additionalFields": {
+          "queryParams": "emergency_response,{{$node[\"Categorize Error\"].json[\"severity\"]}},n8n_workflow,{{JSON.stringify($node[\"Categorize Error\"].json)}}"
+        }
+      },
+      "name": "Create Audit Trail",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1250, 700],
+      "id": "db_003"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "name": "Merge All Actions",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1450, 450],
+      "id": "merge_001"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.ADMIN_DASHBOARD_URL}}/api/alerts",
+        "method": "POST",
+        "bodyParametersJson": "{\"type\": \"{{$node[\"Categorize Error\"].json[\"errorType\"]}}\", \"severity\": \"{{$node[\"Categorize Error\"].json[\"severity\"]}}\", \"source\": \"n8n_emergency_workflow\", \"timestamp\": \"{{$node[\"Categorize Error\"].json[\"context\"][\"timestamp\"]}}\", \"details\": {{JSON.stringify($node[\"Merge All Actions\"].json)}}, \"actionsTaken\": {{JSON.stringify($node[\"Merge All Actions\"].json.map(a => a.name))}}}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.ADMIN_API_TOKEN}}\"}"
+      },
+      "name": "Send to Admin Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1650, 450],
+      "id": "http_006"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node[\"Categorize Error\"].json[\"severity\"]}}",
+              "operation": "equals",
+              "value2": "critical"
+            }
+          ]
+        }
+      },
+      "name": "Is Critical?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1850, 450],
+      "id": "if_004"
+    },
+    {
+      "parameters": {
+        "resource": "incident",
+        "operation": "create",
+        "title": "{{$node[\"Categorize Error\"].json[\"errorType\"]}}: {{$node[\"Categorize Error\"].json[\"context\"][\"errorMessage\"]}}",
+        "serviceId": "{{$env.PAGERDUTY_SERVICE_ID}}",
+        "urgency": "high",
+        "additionalFields": {
+          "details": "{{JSON.stringify($node[\"Categorize Error\"].json)}}",
+          "escalationPolicy": "{{$env.PAGERDUTY_ESCALATION_POLICY}}"
+        }
+      },
+      "name": "Page On-Call Engineer",
+      "type": "n8n-nodes-base.pagerDuty",
+      "typeVersion": 1,
+      "position": [2050, 400],
+      "credentials": {
+        "pagerDutyApi": {
+          "id": "pagerduty_prod",
+          "name": "PagerDuty Production"
+        }
+      },
+      "id": "pagerduty_001"
+    },
+    {
+      "parameters": {
+        "url": "{{$env.BACKEND_URL}}/api/incidents/create",
+        "method": "POST",
+        "bodyParametersJson": "{\"title\": \"{{$node[\"Categorize Error\"].json[\"errorType\"]}}\", \"severity\": \"{{$node[\"Categorize Error\"].json[\"severity\"]}}\", \"status\": \"open\", \"assignedTo\": \"on-call\", \"description\": \"{{$node[\"Categorize Error\"].json[\"context\"][\"errorMessage\"]}}\", \"timeline\": {{JSON.stringify($node[\"Merge All Actions\"].json)}}, \"pagerdutyId\": \"{{$node[\"Page On-Call Engineer\"].json[\"id\"]}}\"}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Create Incident Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [2250, 400],
+      "id": "http_007"
+    },
+    {
+      "parameters": {
+        "level": "error",
+        "message": "Emergency Response: {{$node[\"Categorize Error\"].json[\"errorType\"]}} - {{$node[\"Categorize Error\"].json[\"context\"][\"errorMessage\"]}}",
+        "additionalFields": {
+          "metadata": "{{JSON.stringify($node[\"Categorize Error\"].json)}}"
+        }
+      },
+      "name": "Log Error",
+      "type": "n8n-nodes-base.logger",
+      "typeVersion": 1,
+      "position": [2050, 500],
+      "id": "logger_001"
+    },
+    {
+      "parameters": {
+        "url": "{{$env.METRICS_API}}/api/v1/metrics",
+        "method": "POST",
+        "bodyParametersJson": "{\"metric\": \"emergency_response\", \"value\": 1, \"tags\": {\"error_type\": \"{{$node[\"Categorize Error\"].json[\"errorType\"]}}\", \"severity\": \"{{$node[\"Categorize Error\"].json[\"severity\"]}}\", \"service\": \"{{$node[\"Categorize Error\"].json[\"context\"][\"service\"]}}\", \"resolved\": false}, \"timestamp\": \"{{$node[\"Categorize Error\"].json[\"context\"][\"timestamp\"]}}\"}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.METRICS_API_TOKEN}}\"}"
+      },
+      "name": "Update Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [2050, 550],
+      "id": "http_008"
+    },
+    {
+      "parameters": {
+        "amount": 3600000,
+        "unit": "milliseconds"
+      },
+      "name": "Wait 1 Hour",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2450, 450],
+      "id": "wait_002"
+    },
+    {
+      "parameters": {
+        "url": "{{$env.BACKEND_URL}}/api/incidents/analyze",
+        "method": "POST",
+        "bodyParametersJson": "{\"incidentId\": \"{{$node[\"Create Incident Record\"].json[\"id\"]}}\", \"generateReport\": true, \"includeMetrics\": true, \"includeLogs\": true}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Run Post-Mortem Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [2650, 450],
+      "id": "http_009"
+    },
+    {
+      "parameters": {
+        "fromEmail": "system@fineacers.com",
+        "toEmail": "{{$env.ENGINEERING_TEAM_EMAIL}}",
+        "subject": "Post-Mortem Report: {{$node[\"Categorize Error\"].json[\"errorType\"]}}",
+        "html": "{{$node[\"Run Post-Mortem Analysis\"].json[\"report\"]}}",
+        "attachments": "{{$node[\"Run Post-Mortem Analysis\"].json[\"attachments\"]}}"
+      },
+      "name": "Send Post-Mortem Report",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [2850, 450],
+      "id": "email_002"
+    }
+  ],
+  "connections": {
+    "Error Detection Webhook": {
+      "main": [[{"node": "Categorize Error", "type": "main", "index": 0}]]
+    },
+    "Categorize Error": {
+      "main": [[{"node": "Route by Error Type", "type": "main", "index": 0}]]
+    },
+    "Route by Error Type": {
+      "main": [
+        [{"node": "Check Circuit Breaker", "type": "main", "index": 0}],
+        [{"node": "Get Lead & Team Details", "type": "main", "index": 0}],
+        [{"node": "Service Health Check", "type": "main", "index": 0}],
+        [{"node": "Check Data Integrity", "type": "main", "index": 0}]
+      ]
+    },
+    "Check Circuit Breaker": {
+      "main": [[{"node": "Is Circuit Open?", "type": "main", "index": 0}]]
+    },
+    "Is Circuit Open?": {
+      "main": [
+        [{"node": "Activate Fallback Service", "type": "main", "index": 0}],
+        [{"node": "Calculate Retry Strategy", "type": "main", "index": 0}]
+      ]
+    },
+    "Calculate Retry Strategy": {
+      "main": [[{"node": "Wait for Backoff", "type": "main", "index": 0}]]
+    },
+    "Wait for Backoff": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Activate Fallback Service": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Get Lead & Team Details": {
+      "main": [
+        [
+          {"node": "SMS to Sales Manager", "type": "main", "index": 0},
+          {"node": "WhatsApp to BDM", "type": "main", "index": 0},
+          {"node": "Email to Team", "type": "main", "index": 0},
+          {"node": "Create CRM Alert", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "SMS to Sales Manager": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "WhatsApp to BDM": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Email to Team": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Create CRM Alert": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Service Health Check": {
+      "main": [[{"node": "Service Unhealthy?", "type": "main", "index": 0}]]
+    },
+    "Service Unhealthy?": {
+      "main": [
+        [
+          {"node": "Restart Service", "type": "main", "index": 0},
+          {"node": "Switch to Backup Service", "type": "main", "index": 0},
+          {"node": "Scale Kubernetes Resources", "type": "main", "index": 0}
+        ],
+        []
+      ]
+    },
+    "Restart Service": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Switch to Backup Service": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Scale Kubernetes Resources": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Check Data Integrity": {
+      "main": [[{"node": "Data Errors Found?", "type": "main", "index": 0}]]
+    },
+    "Data Errors Found?": {
+      "main": [
+        [
+          {"node": "Generate Validation Queries", "type": "main", "index": 0},
+          {"node": "Backup Affected Tables", "type": "main", "index": 0},
+          {"node": "Create Audit Trail", "type": "main", "index": 0}
+        ],
+        []
+      ]
+    },
+    "Generate Validation Queries": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Backup Affected Tables": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Create Audit Trail": {
+      "main": [[{"node": "Merge All Actions", "type": "main", "index": 0}]]
+    },
+    "Merge All Actions": {
+      "main": [[{"node": "Send to Admin Dashboard", "type": "main", "index": 0}]]
+    },
+    "Send to Admin Dashboard": {
+      "main": [[{"node": "Is Critical?", "type": "main", "index": 0}]]
+    },
+    "Is Critical?": {
+      "main": [
+        [{"node": "Page On-Call Engineer", "type": "main", "index": 0}],
+        [
+          {"node": "Log Error", "type": "main", "index": 0},
+          {"node": "Update Metrics", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Page On-Call Engineer": {
+      "main": [[{"node": "Create Incident Record", "type": "main", "index": 0}]]
+    },
+    "Create Incident Record": {
+      "main": [[{"node": "Wait 1 Hour", "type": "main", "index": 0}]]
+    },
+    "Log Error": {
+      "main": [[{"node": "Wait 1 Hour", "type": "main", "index": 0}]]
+    },
+    "Update Metrics": {
+      "main": [[{"node": "Wait 1 Hour", "type": "main", "index": 0}]]
+    },
+    "Wait 1 Hour": {
+      "main": [[{"node": "Run Post-Mortem Analysis", "type": "main", "index": 0}]]
+    },
+    "Run Post-Mortem Analysis": {
+      "main": [[{"node": "Send Post-Mortem Report", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "saveDataSuccessExecution": true,
+    "saveDataErrorExecution": true,
+    "saveManualExecutions": true,
+    "executionTimeout": -1,
+    "errorWorkflow": "self"
+  }
+}

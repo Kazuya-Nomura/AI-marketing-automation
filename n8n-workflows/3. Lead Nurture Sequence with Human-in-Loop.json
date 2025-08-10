@@ -1,0 +1,778 @@
+{
+  "name": "Lead Nurture Sequence with Human-in-Loop",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 9,
+              "minute": 0
+            },
+            {
+              "hour": 14,
+              "minute": 0
+            },
+            {
+              "hour": 18,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "id": "nurture_trigger",
+      "name": "Lead Temperature Detection",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "leads",
+        "where": {
+          "conditions": [
+            {
+              "column": "status",
+              "operation": "equals",
+              "value": "active"
+            },
+            {
+              "column": "last_contact",
+              "operation": "lessThan",
+              "value": "NOW() - INTERVAL '24 hours'"
+            },
+            {
+              "column": "nurture_enabled",
+              "operation": "equals",
+              "value": true
+            }
+          ]
+        },
+        "sort": {
+          "column": "score",
+          "direction": "DESC"
+        },
+        "limit": 50
+      },
+      "id": "fetch_leads",
+      "name": "Fetch Active Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{$json.temperature}}",
+              "value2": "hot",
+              "output": 0
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.temperature}}",
+              "value2": "warm",
+              "output": 1
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.temperature}}",
+              "value2": "cold",
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": 2
+      },
+      "id": "temperature_router",
+      "name": "Temperature Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.budget_max}}",
+              "operation": "greaterEqual",
+              "value2": 20000000
+            }
+          ],
+          "string": [
+            {
+              "value1": "={{$json.temperature}}",
+              "operation": "equals",
+              "value2": "hot"
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "high_value_check",
+      "name": "High-Value Lead Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "channel": "={{$env.SLACK_CHANNEL_ID}}",
+        "text": "🔥 HIGH-VALUE LEAD ALERT 🔥",
+        "otherOptions": {
+          "attachments": [
+            {
+              "color": "#ff6b35",
+              "title": "Lead Requires Immediate Attention",
+              "fields": [
+                {
+                  "title": "Name",
+                  "value": "={{$json.name}}",
+                  "short": true
+                },
+                {
+                  "title": "Budget",
+                  "value": "₹{{Math.floor($json.budget_max/10000000)}}Cr+",
+                  "short": true
+                },
+                {
+                  "title": "Score",
+                  "value": "={{$json.score}}/100",
+                  "short": true
+                },
+                {
+                  "title": "Location Interest",
+                  "value": "={{$json.interested_location}}",
+                  "short": true
+                }
+              ],
+              "actions": [
+                {
+                  "name": "approve",
+                  "text": "✅ Approve Premium Sequence",
+                  "type": "button",
+                  "value": "approve_premium",
+                  "style": "primary"
+                },
+                {
+                  "name": "standard",
+                  "text": "📧 Standard Sequence",
+                  "type": "button",
+                  "value": "standard_sequence",
+                  "style": "default"
+                },
+                {
+                  "name": "hold",
+                  "text": "⏸️ Hold",
+                  "type": "button",
+                  "value": "hold_lead",
+                  "style": "danger"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "id": "slack_approval",
+      "name": "Slack Alert - High-Value Lead",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1050, 150]
+    },
+    {
+      "parameters": {
+        "channel": "={{$env.SLACK_CHANNEL_ID}}",
+        "messageId": "={{$node['Slack Alert - High-Value Lead'].json.ts}}",
+        "timeout": 7200
+      },
+      "id": "wait_approval",
+      "name": "Wait for Human Approval",
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [1250, 150]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "approve_premium",
+              "output": 0
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "standard_sequence",
+              "output": 1
+            }
+          ]
+        },
+        "fallbackOutput": 2
+      },
+      "id": "approval_router",
+      "name": "Approval Decision Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1450, 150]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a luxury real estate relationship manager. Create highly personalized, premium nurture sequences for high-value leads. Use elegant language, exclusive opportunities, and personal touch."
+            },
+            {
+              "role": "user",
+              "content": "Create premium nurture sequence for:\nLead: {{$json.name}}\nBudget: ₹{{Math.floor($json.budget_max/10000000)}}Cr\nLocation: {{$json.interested_location}}\nScore: {{$json.score}}\nPrevious Interactions: {{$json.interaction_summary}}\n\nCreate 5-message sequence:\n1. Personal welcome from CEO\n2. Exclusive property preview\n3. Private viewing invitation\n4. ROI analysis with portfolio recommendations\n5. Limited-time exclusive offer\n\nReturn JSON with message templates."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.6,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "premium_sequence_ai",
+      "name": "AI Premium Sequence Generator",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1650, 100]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a real estate marketing specialist. Create effective nurture sequences that build trust and guide leads through the buyer journey."
+            },
+            {
+              "role": "user",
+              "content": "Create standard nurture sequence for:\nLead: {{$json.name}}\nTemperature: {{$json.temperature}}\nBudget: {{$json.budget_range}}\nLocation: {{$json.interested_location}}\n\nCreate sequence based on temperature:\n- Hot: 3 messages over 7 days (immediate, day 2, day 7)\n- Warm: 4 messages over 14 days\n- Cold: 5 messages over 30 days\n\nFocus on education, value proposition, and gentle CTAs."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.5,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "standard_sequence_ai",
+      "name": "AI Standard Sequence Generator",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "queueName": "cold-lead-nurture",
+        "messageData": "={{JSON.stringify($json)}}",
+        "options": {
+          "delay": 86400000,
+          "priority": 1
+        }
+      },
+      "id": "cold_lead_queue",
+      "name": "Cold Lead Nurture Queue",
+      "type": "n8n-nodes-base.rabbitmq",
+      "typeVersion": 1,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "nurture_sequences",
+        "columns": "lead_id,sequence_type,messages,schedule,status,created_by",
+        "options": {
+          "queryName": "create_nurture_sequence"
+        }
+      },
+      "id": "save_sequence",
+      "name": "Save Nurture Sequence",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1850, 200]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "message_iterator",
+      "name": "Sequential Message Iterator",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [2050, 200]
+    },
+    {
+      "parameters": {
+        "amount": "={{$json.delay_hours || 24}}",
+        "unit": "hours"
+      },
+      "id": "message_delay",
+      "name": "Message Delay Timer",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2250, 200]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{$json.channel}}",
+              "value2": "whatsapp",
+              "output": 0
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.channel}}",
+              "value2": "email",
+              "output": 1
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.channel}}",
+              "value2": "sms",
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "channel_router",
+      "name": "Channel-Based Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [2450, 200]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendText",
+        "phoneNumber": "={{$json.phone}}",
+        "text": "={{$json.personalizedMessage}}"
+      },
+      "id": "whatsapp_message",
+      "name": "WhatsApp Message",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [2650, 100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SMTP_FROM}}",
+        "toEmail": "={{$json.email}}",
+        "subject": "={{$json.emailSubject}}",
+        "html": true,
+        "htmlBody": "={{$json.emailTemplate}}",
+        "options": {
+          "trackOpens": true,
+          "trackClicks": true
+        }
+      },
+      "id": "email_message",
+      "name": "Email Message",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [2650, 200]
+    },
+    {
+      "parameters": {
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{$env.TWILIO_PHONE}}",
+        "to": "={{$json.phone}}",
+        "message": "={{$json.smsMessage}}"
+      },
+      "id": "sms_message",
+      "name": "SMS Message",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [2650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "engagement_tracking",
+        "columns": "lead_id,message_id,channel,sent_at,message_content,tracking_id",
+        "options": {
+          "queryName": "track_message_sent"
+        }
+      },
+      "id": "track_engagement",
+      "name": "Track Message Engagement",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2850, 200]
+    },
+    {
+      "parameters": {
+        "intervalSize": 7200,
+        "interval": "seconds"
+      },
+      "id": "engagement_monitor",
+      "name": "Engagement Monitor (2h)",
+      "type": "n8n-nodes-base.interval",
+      "typeVersion": 1,
+      "position": [3050, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/analytics/engagement-metrics",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"leadId\": \"{{$json.leadId}}\",\n  \"messageId\": \"{{$json.messageId}}\",\n  \"channel\": \"{{$json.channel}}\"\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.API_TOKEN}}\"\n}"
+      },
+      "id": "collect_engagement",
+      "name": "Collect Engagement Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3250, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.engagementScore}}",
+              "operation": "greaterEqual",
+              "value2": 80
+            }
+          ]
+        }
+      },
+      "id": "engagement_threshold",
+      "name": "High Engagement Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3450, 200]
+    },
+    {
+      "parameters": {
+        "channel": "={{$env.SALES_SLACK_CHANNEL}}",
+        "text": "🎯 HIGH ENGAGEMENT ALERT",
+        "otherOptions": {
+          "attachments": [
+            {
+              "color": "#28a745",
+              "title": "Lead Showing Strong Interest",
+              "fields": [
+                {
+                  "title": "Lead",
+                  "value": "={{$json.name}}",
+                  "short": true
+                },
+                {
+                  "title": "Engagement Score",
+                  "value": "={{$json.engagementScore}}%",
+                  "short": true
+                },
+                {
+                  "title": "Temperature",
+                  "value": "🔥 Ready for Call",
+                  "short": true
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "id": "sales_alert",
+      "name": "Alert Sales Team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [3650, 150]
+    }
+  ],
+  "connections": {
+    "Lead Temperature Detection": {
+      "main": [
+        [
+          {
+            "node": "Fetch Active Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Active Leads": {
+      "main": [
+        [
+          {
+            "node": "Temperature Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Temperature Router": {
+      "main": [
+        [
+          {
+            "node": "High-Value Lead Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Standard Sequence Generator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cold Lead Nurture Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High-Value Lead Check": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert - High-Value Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Standard Sequence Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Alert - High-Value Lead": {
+      "main": [
+        [
+          {
+            "node": "Wait for Human Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Human Approval": {
+      "main": [
+        [
+          {
+            "node": "Approval Decision Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Decision Router": {
+      "main": [
+        [
+          {
+            "node": "AI Premium Sequence Generator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Standard Sequence Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Premium Sequence Generator": {
+      "main": [
+        [
+          {
+            "node": "Save Nurture Sequence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Standard Sequence Generator": {
+      "main": [
+        [
+          {
+            "node": "Save Nurture Sequence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Nurture Sequence": {
+      "main": [
+        [
+          {
+            "node": "Sequential Message Iterator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sequential Message Iterator": {
+      "main": [
+        [
+          {
+            "node": "Message Delay Timer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message Delay Timer": {
+      "main": [
+        [
+          {
+            "node": "Channel-Based Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel-Based Router": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SMS Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Track Message Engagement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Message": {
+      "main": [
+        [
+          {
+            "node": "Track Message Engagement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMS Message": {
+      "main": [
+        [
+          {
+            "node": "Track Message Engagement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Message Engagement": {
+      "main": [
+        [
+          {
+            "node": "Engagement Monitor (2h)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engagement Monitor (2h)": {
+      "main": [
+        [
+          {
+            "node": "Collect Engagement Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Engagement Data": {
+      "main": [
+        [
+          {
+            "node": "High Engagement Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Engagement Check": {
+      "main": [
+        [
+          {
+            "node": "Alert Sales Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow-id"
+  }
+}

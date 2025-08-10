@@ -1,0 +1,134 @@
+{
+  "name": "Multi-Stage Lead Nurture Campaign",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 10,
+              "minute": 0,
+              "weekday": [1, 2, 3, 4, 5]
+            }
+          ]
+        }
+      },
+      "name": "Daily Lead Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM leads WHERE status = 'new' AND created_at >= NOW() - INTERVAL '24 hours' AND temperature IN ('warm', 'cold')",
+        "additionalFields": {}
+      },
+      "name": "Get New Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node[\"Get New Leads\"].json[\"temperature\"]}}",
+              "operation": "equals",
+              "value2": "warm"
+            }
+          ]
+        }
+      },
+      "name": "Check Temperature",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/ai/generate-content",
+        "method": "POST",
+        "bodyParametersJson": "{\"leadData\": {{JSON.stringify($node[\"Get New Leads\"].json)}}, \"contentType\": \"nurture_email\", \"stage\": 1}",
+        "headerParametersJson": "{\"Authorization\": \"Bearer {{$env.API_TOKEN}}\"}"
+      },
+      "name": "Generate AI Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.FROM_EMAIL}}",
+        "toEmail": "={{$node[\"Get New Leads\"].json[\"email\"]}}",
+        "subject": "={{$node[\"Generate AI Content\"].json[\"subject\"]}}",
+        "html": "={{$node[\"Generate AI Content\"].json[\"content\"]}}",
+        "additionalFields": {
+          "trackOpens": true,
+          "trackClicks": true,
+          "tags": ["nurture", "stage1", "={{$node[\"Get New Leads\"].json[\"temperature\"]}}"]
+        }
+      },
+      "name": "Send Email",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "days"
+      },
+      "name": "Wait 3 Days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET nurture_stage = nurture_stage + 1, last_contact = NOW() WHERE id = '{{$node[\"Get New Leads\"].json[\"id\"]}}'",
+        "additionalFields": {}
+      },
+      "name": "Update Lead Stage",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "channel": "@{{$node[\"Get New Leads\"].json[\"phone\"]}}",
+        "text": "Hi {{$node[\"Get New Leads\"].json[\"name\"]}}, I wanted to follow up on the property details I sent. Would you like to schedule a quick call to discuss? Reply YES to confirm.",
+        "additionalFields": {}
+      },
+      "name": "Send WhatsApp Follow-up",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [850, 400]
+    }
+  ],
+  "connections": {
+    "Daily Lead Check": {
+      "main": [[{"node": "Get New Leads", "type": "main", "index": 0}]]
+    },
+    "Get New Leads": {
+      "main": [[{"node": "Check Temperature", "type": "main", "index": 0}]]
+    },
+    "Check Temperature": {
+      "main": [
+        [{"node": "Generate AI Content", "type": "main", "index": 0}],
+        [{"node": "Send WhatsApp Follow-up", "type": "main", "index": 0}]
+      ]
+    },
+    "Generate AI Content": {
+      "main": [[{"node": "Send Email", "type": "main", "index": 0}]]
+    },
+    "Send Email": {
+      "main": [[{"node": "Wait 3 Days", "type": "main", "index": 0}]]
+    },
+    "Wait 3 Days": {
+      "main": [[{"node": "Update Lead Stage", "type": "main", "index": 0}]]
+    }
+  }
+}

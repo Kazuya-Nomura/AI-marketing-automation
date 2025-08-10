@@ -1,0 +1,733 @@
+{
+  "name": "Conversational AI Sales Agent Hierarchy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-conversation-webhook",
+        "responseMode": "lastNode",
+        "options": {
+          "responseData": "allEntries",
+          "responseHeaders": {
+            "values": {
+              "Content-Type": "application/json"
+            }
+          }
+        }
+      },
+      "id": "customer_message_input",
+      "name": "Customer Message Input",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "ai-conv-001"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "leads",
+        "returnAll": false,
+        "limit": 1,
+        "where": {
+          "conditions": [
+            {
+              "column": "phone",
+              "operation": "equals",
+              "value": "={{$json.from}}"
+            }
+          ]
+        },
+        "additionalFields": {
+          "includeFields": "id,name,email,phone,score,temperature,interested_location,budget_range,last_interaction,conversation_history"
+        }
+      },
+      "id": "load_lead_profile",
+      "name": "Load Lead Profile",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 350]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.REDIS_URL}}/get",
+        "method": "GET",
+        "queryParametersJson": "={\n  \"key\": \"conversation:{{$json.leadId}}:context\"\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.REDIS_TOKEN}}\"\n}"
+      },
+      "id": "load_conversation_context",
+      "name": "Load Conversation Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 250]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert luxury real estate sales AI assistant for FineAcers. Analyze incoming messages to understand intent, maintain conversation context, and provide helpful responses. You have access to specialized agents for specific queries."
+            },
+            {
+              "role": "assistant",
+              "content": "{{$json.conversationContext || 'No previous context'}}"
+            },
+            {
+              "role": "user",
+              "content": "Lead Profile: {{JSON.stringify($node['Load Lead Profile'].json)}}\n\nNew Message: {{$json.message}}\n\nAnalyze this message and return:\n1. Primary intent (pricing/property/scheduling/general)\n2. Confidence score (0-100)\n3. Key entities extracted\n4. Suggested response approach\n5. Should escalate to human? (yes/no)\n\nReturn as JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 500,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "primary_conversation_agent",
+      "name": "Primary Conversation Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{$json.primaryIntent}}",
+              "value2": "pricing",
+              "output": 0
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.primaryIntent}}",
+              "value2": "property",
+              "output": 1
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.primaryIntent}}",
+              "value2": "scheduling",
+              "output": 2
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.primaryIntent}}",
+              "value2": "general",
+              "output": 3
+            }
+          ]
+        },
+        "fallbackOutput": 3
+      },
+      "id": "intent_detection_router",
+      "name": "Intent Detection Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a pricing specialist for luxury real estate. You have deep knowledge of property valuations, ROI calculations, financing options, and investment returns. Provide detailed, accurate pricing information while highlighting value propositions."
+            },
+            {
+              "role": "user",
+              "content": "Lead Budget: {{$json.lead.budget_range}}\nProperty Interest: {{$json.lead.interested_location}}\nQuery: {{$json.message}}\nExtracted Entities: {{JSON.stringify($json.entities)}}\n\nProvide detailed pricing response including:\n1. Base price information\n2. ROI projections\n3. Financing options\n4. Comparison with market rates\n5. Limited-time offers if applicable\n\nMaintain luxury positioning while being transparent about investment benefits."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.5,
+          "maxTokens": 800
+        }
+      },
+      "id": "pricing_expert_agent",
+      "name": "Pricing Expert Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1050, 100]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a property information specialist with comprehensive knowledge of FineAcers' luxury real estate portfolio. Provide detailed property information, amenities, location benefits, and lifestyle aspects."
+            },
+            {
+              "role": "user",
+              "content": "Property Database: {{$json.propertyData}}\nLead Preferences: {{$json.lead.interested_location}}\nQuery: {{$json.message}}\n\nProvide comprehensive property information including:\n1. Property features and specifications\n2. Amenities and facilities\n3. Location advantages\n4. Lifestyle benefits\n5. Similar property suggestions\n\nUse vivid descriptions that paint a picture of luxury living."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.6,
+          "maxTokens": 1000
+        }
+      },
+      "id": "property_info_agent",
+      "name": "Property Info Bot",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a scheduling assistant for FineAcers. Help leads book property viewings, meetings with sales representatives, and virtual tours. Be accommodating and flexible while maintaining professional scheduling practices."
+            },
+            {
+              "role": "user",
+              "content": "Available Slots: {{$json.availableSlots}}\nLead Preferences: {{$json.lead}}\nQuery: {{$json.message}}\n\nHandle scheduling request:\n1. Suggest optimal viewing times\n2. Offer multiple options\n3. Consider lead's location and preferences\n4. Provide virtual tour alternatives\n5. Set clear expectations\n\nBe warm and accommodating while maintaining efficiency."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 600
+        }
+      },
+      "id": "scheduling_assistant",
+      "name": "Scheduling Assistant",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a general support agent for FineAcers luxury real estate. Handle general inquiries, provide company information, and guide leads through their journey. Be helpful, professional, and maintain the luxury brand image."
+            },
+            {
+              "role": "user",
+              "content": "Lead Profile: {{JSON.stringify($json.lead)}}\nQuery: {{$json.message}}\nContext: {{$json.conversationContext}}\n\nProvide helpful response for general inquiry. If the query seems to need specialized attention, suggest connecting with the appropriate expert while providing initial assistance."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.5,
+          "maxTokens": 600
+        }
+      },
+      "id": "general_support_agent",
+      "name": "General Support Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "confidence_check",
+              "leftValue": "={{ $json.confidence }}",
+              "rightValue": 70,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            },
+            {
+              "id": "escalation_check",
+              "leftValue": "={{ $json.shouldEscalate }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "complex_query",
+              "leftValue": "={{ $json.queryComplexity }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "confidence_escalation_check",
+      "name": "Confidence & Escalation Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "channel": "={{$env.SALES_SLACK_CHANNEL}}",
+        "text": "🚨 Customer Needs Human Assistance",
+        "otherOptions": {
+          "attachments": [
+            {
+              "color": "#ff4444",
+              "title": "AI Handoff Required",
+              "fields": [
+                {
+                  "title": "Lead Name",
+                  "value": "{{$json.lead.name}}",
+                  "short": true
+                },
+                {
+                  "title": "Score",
+                  "value": "{{$json.lead.score}}/100",
+                  "short": true
+                },
+                {
+                  "title": "Query Type",
+                  "value": "{{$json.primaryIntent}}",
+                  "short": true
+                },
+                {
+                  "title": "AI Confidence",
+                  "value": "{{$json.confidence}}%",
+                  "short": true
+                },
+                {
+                  "title": "Customer Message",
+                  "value": "{{$json.message}}",
+                  "short": false
+                },
+                {
+                  "title": "AI Response Draft",
+                  "value": "{{$json.aiResponse}}",
+                  "short": false
+                }
+              ],
+              "actions": [
+                {
+                  "name": "take_over",
+                  "text": "👤 Take Over Chat",
+                  "type": "button",
+                  "value": "human_takeover",
+                  "style": "primary"
+                },
+                {
+                  "name": "approve_response",
+                  "text": "✅ Approve AI Response",
+                  "type": "button",
+                  "value": "approve_ai_response"
+                },
+                {
+                  "name": "modify_response",
+                  "text": "✏️ Modify Response",
+                  "type": "button",
+                  "value": "modify_ai_response"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "id": "human_handoff_alert",
+      "name": "Sales Team Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1450, 350]
+    },
+    {
+      "parameters": {
+        "queueName": "human-handoff-queue",
+        "messageData": "={{JSON.stringify({\n  leadId: $json.lead.id,\n  conversationId: $json.conversationId,\n  priority: $json.lead.score > 80 ? 'high' : 'normal',\n  timestamp: new Date().toISOString()\n})}}",
+        "options": {
+          "priority": "={{$json.lead.score > 80 ? 1 : 5}}"
+        }
+      },
+      "id": "queue_for_human",
+      "name": "Queue for Human Agent",
+      "type": "n8n-nodes-base.rabbitmq",
+      "typeVersion": 1,
+      "position": [1650, 350]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "update",
+        "leadId": "={{$json.lead.id}}",
+        "updateFields": {
+          "lastInteraction": "={{new Date().toISOString()}}",
+          "engagementScore": "={{Math.min($json.lead.score + 5, 100)}}",
+          "conversationCount": "={{($json.lead.conversationCount || 0) + 1}}",
+          "lastIntent": "={{$json.primaryIntent}}",
+          "aiConfidence": "={{$json.confidence}}"
+        }
+      },
+      "id": "update_lead_crm",
+      "name": "Update Lead in CRM",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [1450, 150]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "conversation_logs",
+        "columns": "lead_id,message_id,channel,customer_message,ai_response,intent,confidence,agent_type,timestamp,metadata",
+        "options": {
+          "queryName": "log_conversation"
+        }
+      },
+      "id": "log_conversation",
+      "name": "Log Conversation to DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1650, 150]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.primaryIntent}}",
+              "operation": "equals",
+              "value2": "scheduling"
+            },
+            {
+              "value1": "={{$json.actionRequired}}",
+              "operation": "equals",
+              "value2": "create_appointment"
+            }
+          ],
+          "combineOperation": "and"
+        }
+      },
+      "id": "task_creation_check",
+      "name": "Task Creation Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1850, 150]
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "operation": "create",
+        "assignedTo": "={{$json.assignedSalesRep}}",
+        "subject": "Property Viewing - {{$json.lead.name}}",
+        "dueDate": "={{$json.scheduledDate}}",
+        "priority": "={{$json.lead.score > 80 ? 'High' : 'Normal'}}",
+        "description": "Lead: {{$json.lead.name}}\nPhone: {{$json.lead.phone}}\nProperty Interest: {{$json.lead.interested_location}}\nPreferred Time: {{$json.preferredTime}}\n\nConversation Summary:\n{{$json.conversationSummary}}"
+      },
+      "id": "create_task_crm",
+      "name": "Create Task in CRM",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [2050, 100]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare final response\nconst response = {\n  leadId: $json.lead.id,\n  messageId: $json.messageId,\n  response: $json.finalResponse || $json.aiResponse,\n  intent: $json.primaryIntent,\n  confidence: $json.confidence,\n  handoffRequired: $json.handoffRequired || false,\n  queuePosition: $json.queuePosition || null,\n  suggestedActions: $json.suggestedActions || [],\n  conversationId: $json.conversationId\n};\n\n// Add personalization\nif ($json.lead.name) {\n  response.response = response.response.replace(/\\{\\{name\\}\\}/g, $json.lead.name);\n}\n\n// Add tracking parameters\nresponse.metadata = {\n  processingTime: Date.now() - $json.startTime,\n  agentType: $json.agentType,\n  modelUsed: 'gpt-4-turbo',\n  temperature: $json.lead.temperature\n};\n\nreturn response;"
+      },
+      "id": "prepare_response",
+      "name": "Prepare Final Response",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [2250, 250]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.REDIS_URL}}/set",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"key\": \"conversation:{{$json.leadId}}:context\",\n  \"value\": {{JSON.stringify({\n    lastMessage: $json.response,\n    lastIntent: $json.intent,\n    timestamp: new Date().toISOString(),\n    conversationId: $json.conversationId\n  })}},\n  \"ttl\": 3600\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.REDIS_TOKEN}}\"\n}"
+      },
+      "id": "update_context",
+      "name": "Update Conversation Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2450, 250]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.ANALYTICS_URL}}/track",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"event\": \"ai_conversation\",\n  \"properties\": {\n    \"leadId\": \"{{$json.leadId}}\",\n    \"intent\": \"{{$json.intent}}\",\n    \"confidence\": {{$json.confidence}},\n    \"handoffRequired\": {{$json.handoffRequired}},\n    \"responseTime\": {{$json.metadata.processingTime}},\n    \"agentType\": \"{{$json.agentType}}\",\n    \"leadScore\": {{$json.lead.score}},\n    \"leadTemperature\": \"{{$json.lead.temperature}}\"\n  },\n  \"timestamp\": \"{{new Date().toISOString()}}\"\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.ANALYTICS_TOKEN}}\"\n}"
+      },
+      "id": "track_analytics",
+      "name": "Track Performance Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2650, 250]
+    }
+  ],
+  "connections": {
+    "Customer Message Input": {
+      "main": [
+        [
+          {
+            "node": "Load Lead Profile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Conversation Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Lead Profile": {
+      "main": [
+        [
+          {
+            "node": "Primary Conversation Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Conversation Context": {
+      "main": [
+        [
+          {
+            "node": "Primary Conversation Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Primary Conversation Agent": {
+      "main": [
+        [
+          {
+            "node": "Intent Detection Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Detection Router": {
+      "main": [
+        [
+          {
+            "node": "Pricing Expert Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Property Info Bot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Scheduling Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "General Support Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pricing Expert Agent": {
+      "main": [
+        [
+          {
+            "node": "Confidence & Escalation Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Property Info Bot": {
+      "main": [
+        [
+          {
+            "node": "Confidence & Escalation Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scheduling Assistant": {
+      "main": [
+        [
+          {
+            "node": "Confidence & Escalation Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "General Support Agent": {
+      "main": [
+        [
+          {
+            "node": "Confidence & Escalation Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence & Escalation Check": {
+      "main": [
+        [
+          {
+            "node": "Sales Team Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Lead in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales Team Alert": {
+      "main": [
+        [
+          {
+            "node": "Queue for Human Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead in CRM": {
+      "main": [
+        [
+          {
+            "node": "Log Conversation to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Conversation to DB": {
+      "main": [
+        [
+          {
+            "node": "Task Creation Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task Creation Check": {
+      "main": [
+        [
+          {
+            "node": "Create Task in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Task in CRM": {
+      "main": [
+        [
+          {
+            "node": "Prepare Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue for Human Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Final Response": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Conversation Context": {
+      "main": [
+        [
+          {
+            "node": "Track Performance Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow-id"
+  }
+}

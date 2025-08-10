@@ -1,0 +1,31 @@
+const { Pool } = require('pg');
+const { logger } = require('../utils/logger');
+
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+async function initializeDatabase() {
+  try {
+    const client = await pool.connect();
+    await client.query('SELECT NOW()');
+    client.release();
+    logger.info('Database connected successfully');
+  } catch (error) {
+    logger.error('Database connection failed:', error);
+    throw error;
+  }
+}
+
+module.exports = {
+  pool,
+  initializeDatabase,
+  query: (text, params) => pool.query(text, params),
+};

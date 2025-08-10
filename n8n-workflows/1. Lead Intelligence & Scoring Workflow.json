@@ -1,0 +1,395 @@
+{
+  "name": "Lead Intelligence & Scoring Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intelligence-webhook",
+        "responseMode": "responseViaWebhook",
+        "options": {
+          "responsePropertyName": "leadProcessingId"
+        }
+      },
+      "id": "webhook_trigger",
+      "name": "New Lead Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "lead-intel-001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.name}}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{$json.phone}}",
+              "operation": "regex",
+              "value2": "^[+]?[0-9]{10,15}$"
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "data_validator",
+      "name": "Data Validation Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendText",
+        "phoneNumber": "={{$env.ADMIN_WHATSAPP}}",
+        "text": "⚠️ Invalid Lead Data Received\n\nLead ID: {{$json.leadId}}\nError: Missing or invalid required fields\nTimestamp: {{$now}}"
+      },
+      "id": "error_notification",
+      "name": "Send Error Notification",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [650, 450]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a lead enrichment specialist. Extract and enrich lead information from various sources."
+            },
+            {
+              "role": "user",
+              "content": "Enrich this lead data:\n{{JSON.stringify($json)}}\n\nSearch for:\n1. Social media profiles\n2. Company information\n3. Previous property interests\n4. Financial indicators"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 500
+        }
+      },
+      "id": "enrichment_agent",
+      "name": "Lead Enrichment Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "linkedin_search",
+              "name": "linkedinProfile",
+              "value": "={{$json.enrichment.linkedinUrl}}",
+              "type": "string"
+            },
+            {
+              "id": "company_data",
+              "name": "companyInfo",
+              "value": "={{$json.enrichment.company}}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge_enrichment",
+      "name": "Merge Enrichment Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert real estate lead scoring AI. Score leads from 0-100 based on:\n- Budget alignment (0-30 points)\n- Urgency indicators (0-20 points)\n- Engagement level (0-20 points)\n- Property match (0-20 points)\n- Financial readiness (0-10 points)\n\nReturn JSON: {\"score\": number, \"temperature\": \"hot|warm|cold\", \"reasoning\": string}"
+            },
+            {
+              "role": "user",
+              "content": "Score this enriched lead:\n{{JSON.stringify($json)}}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "ai_scoring",
+      "name": "AI Lead Scoring (GPT-4)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{$json.scoring.temperature}}",
+              "value2": "hot",
+              "output": 0
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.scoring.temperature}}",
+              "value2": "warm",
+              "output": 1
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.scoring.temperature}}",
+              "value2": "cold",
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": 2
+      },
+      "id": "temperature_router",
+      "name": "Temperature-Based Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": "leads",
+        "columns": "id,name,phone,email,score,temperature,enrichment_data,ai_insights",
+        "matchingColumns": "phone",
+        "options": {
+          "queryName": "upsert_scored_lead"
+        }
+      },
+      "id": "crm_sync",
+      "name": "Sync to CRM Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendTemplate",
+        "phoneNumber": "={{$json.phone}}",
+        "templateName": "hot_lead_immediate",
+        "templateParameters": [
+          {
+            "name": "1",
+            "value": "={{$json.name}}"
+          },
+          {
+            "name": "2",
+            "value": "{{$json.ai_insights.next_best_action}}"
+          }
+        ]
+      },
+      "id": "hot_whatsapp",
+      "name": "Hot Lead - WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SMTP_FROM}}",
+        "toEmail": "={{$json.email}}",
+        "subject": "Welcome to FineAcers - Exclusive Property Opportunities",
+        "html": true,
+        "htmlBody": "=<h2>Hi {{$json.name}},</h2><p>{{$json.ai_insights.personalized_message}}</p>",
+        "options": {
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "id": "warm_email",
+      "name": "Warm Lead - Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "queueName": "cold-lead-nurture",
+        "messageData": "={{JSON.stringify($json)}}",
+        "options": {
+          "delay": 86400000,
+          "priority": 5
+        }
+      },
+      "id": "cold_queue",
+      "name": "Cold Lead - Nurture Queue",
+      "type": "n8n-nodes-base.rabbitmq",
+      "typeVersion": 1,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "content": "## Lead Processing Complete\n\n**Lead ID**: {{$json.id}}\n**Score**: {{$json.score}}/100\n**Temperature**: {{$json.temperature}}\n**Next Action**: {{$json.ai_insights.next_best_action}}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "webhook_response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    }
+  ],
+  "connections": {
+    "New Lead Webhook": {
+      "main": [
+        [
+          {
+            "node": "Data Validation Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Validation Router": {
+      "main": [
+        [
+          {
+            "node": "Lead Enrichment Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Enrichment Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge Enrichment Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Enrichment Data": {
+      "main": [
+        [
+          {
+            "node": "AI Lead Scoring (GPT-4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Lead Scoring (GPT-4)": {
+      "main": [
+        [
+          {
+            "node": "Temperature-Based Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Temperature-Based Router": {
+      "main": [
+        [
+          {
+            "node": "Hot Lead - WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Warm Lead - Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cold Lead - Nurture Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hot Lead - WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Sync to CRM Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warm Lead - Email": {
+      "main": [
+        [
+          {
+            "node": "Sync to CRM Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cold Lead - Nurture Queue": {
+      "main": [
+        [
+          {
+            "node": "Sync to CRM Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync to CRM Database": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow-id"
+  }
+}

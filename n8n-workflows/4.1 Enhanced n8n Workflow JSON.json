@@ -1,0 +1,297 @@
+{
+  "name": "Fine Acers Complete Integration Flow",
+  "nodes": [
+    {
+      "name": "Integration Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [100, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/v1/integration/{{integrationId}}",
+        "responseData": "allEntries",
+        "rawBody": false,
+        "responseHeaders": {
+          "values": {
+            "Content-Type": "application/json"
+          }
+        }
+      }
+    },
+    {
+      "name": "Validate JWT",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [300, 300],
+      "parameters": {
+        "url": "={{$env.AUTH0_DOMAIN}}/userinfo",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{$json.headers.authorization}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Integration Router",
+      "type": "n8n-nodes-base.switch",
+      "position": [500, 300],
+      "parameters": {
+        "dataPropertyName": "body.integrationType",
+        "values": [
+          {
+            "value": "whatsapp"
+          },
+          {
+            "value": "email"
+          },
+          {
+            "value": "social"
+          },
+          {
+            "value": "cloud"
+          },
+          {
+            "value": "ai"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WhatsApp Configuration",
+      "type": "n8n-nodes-base.function",
+      "position": [700, 100],
+      "parameters": {
+        "functionCode": "// WhatsApp Business API Configuration\nconst credentials = $json.body.credentials;\nconst userId = $json.auth.sub;\n\n// Validate required fields\nconst required = ['apiUrl', 'accessToken', 'phoneNumberId', 'businessId'];\nconst missing = required.filter(field => !credentials[field]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Test WhatsApp connection\nconst testPayload = {\n  messaging_product: 'whatsapp',\n  recipient_type: 'individual',\n  to: credentials.testNumber || credentials.phoneNumber,\n  type: 'template',\n  template: {\n    name: 'hello_world',\n    language: {\n      code: 'en_US'\n    }\n  }\n};\n\n// Prepare for encryption\nreturn [\n  {\n    json: {\n      userId,\n      integrationType: 'whatsapp',\n      credentials: {\n        apiUrl: credentials.apiUrl,\n        phoneNumberId: credentials.phoneNumberId,\n        businessId: credentials.businessId,\n        accessToken: credentials.accessToken\n      },\n      testPayload,\n      metadata: {\n        configuredAt: new Date().toISOString(),\n        features: ['messaging', 'templates', 'media', 'webhooks']\n      }\n    }\n  }\n];"
+      }
+    },
+    {
+      "name": "Test WhatsApp API",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 100],
+      "parameters": {
+        "url": "={{$json.credentials.apiUrl}}/{{$json.credentials.phoneNumberId}}/messages",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$json.credentials.accessToken}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "={{$json.testPayload.messaging_product}}"
+            },
+            {
+              "name": "to",
+              "value": "={{$json.testPayload.to}}"
+            },
+            {
+              "name": "type",
+              "value": "={{$json.testPayload.type}}"
+            },
+            {
+              "name": "template",
+              "value": "={{$json.testPayload.template}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Encrypt Credentials",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1100, 300],
+      "parameters": {
+        "url": "={{$env.VAULT_URL}}/v1/secret/data/users/{{$json.userId}}/{{$json.integrationType}}",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Vault-Token",
+              "value": "={{$env.VAULT_TOKEN}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "={{JSON.stringify($json.credentials)}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Store Integration",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1300, 300],
+      "parameters": {
+        "operation": "upsert",
+        "schema": "public",
+        "table": "user_integrations",
+        "columns": "user_id,type,provider,status,encrypted_credentials,test_results,permissions,metadata",
+        "updateKey": "user_id,type",
+        "additionalFields": {
+          "encrypted_credentials": "={{$json.vault_path}}",
+          "test_results": "={{JSON.stringify($json.testResult)}}",
+          "permissions": "={{$json.metadata.features}}",
+          "metadata": "={{JSON.stringify($json.metadata)}}"
+        }
+      }
+    },
+    {
+      "name": "Multi-Channel Campaign Send",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [100, 600],
+      "parameters": {
+        "batchSize": 50,
+        "options": {
+          "reset": false
+        }
+      }
+    },
+    {
+      "name": "Channel Router",
+      "type": "n8n-nodes-base.switch",
+      "position": [300, 600],
+      "parameters": {
+        "dataPropertyName": "channel",
+        "values": [
+          {
+            "value": "whatsapp"
+          },
+          {
+            "value": "email"
+          },
+          {
+            "value": "facebook"
+          },
+          {
+            "value": "instagram"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [500, 500],
+      "parameters": {
+        "url": "={{$node['Get User Credentials'].json.whatsapp.apiUrl}}/messages",
+        "method": "POST",
+        "authentication": "oAuth2",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{$json.recipient.phone}}"
+            },
+            {
+              "name": "type",
+              "value": "template"
+            },
+            {
+              "name": "template",
+              "value": "={{$json.content.whatsapp}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [500, 600],
+      "parameters": {
+        "fromEmail": "={{$node['Get User Credentials'].json.email.from}}",
+        "toEmail": "={{$json.recipient.email}}",
+        "subject": "={{$json.content.email.subject}}",
+        "html": true,
+        "htmlBody": "={{$json.content.email.body}}",
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "name": "Analytics Aggregator",
+      "type": "n8n-nodes-base.function",
+      "position": [700, 600],
+      "parameters": {
+        "functionCode": "// Aggregate campaign analytics\nconst results = $items.map(item => ({\n  campaignId: item.json.campaignId,\n  channel: item.json.channel,\n  recipientId: item.json.recipient.id,\n  status: item.json.deliveryStatus,\n  timestamp: new Date().toISOString(),\n  metadata: {\n    messageId: item.json.messageId,\n    cost: item.json.cost || 0,\n    deliveryTime: item.json.deliveryTime\n  }\n}));\n\nconst summary = {\n  total: results.length,\n  successful: results.filter(r => r.status === 'delivered').length,\n  failed: results.filter(r => r.status === 'failed').length,\n  pending: results.filter(r => r.status === 'pending').length,\n  byChannel: {}\n};\n\n// Group by channel\nconst channels = [...new Set(results.map(r => r.channel))];\nchannels.forEach(channel => {\n  summary.byChannel[channel] = results.filter(r => r.channel === channel).length;\n});\n\nreturn [{\n  json: {\n    campaignId: results[0]?.campaignId,\n    analytics: summary,\n    details: results\n  }\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "Integration Webhook": {
+      "main": [[{ "node": "Validate JWT", "type": "main", "index": 0 }]]
+    },
+    "Validate JWT": {
+      "main": [[{ "node": "Integration Router", "type": "main", "index": 0 }]]
+    },
+    "Integration Router": {
+      "main": [
+        [{ "node": "WhatsApp Configuration", "type": "main", "index": 0 }],
+        [{ "node": "Email Configuration", "type": "main", "index": 0 }],
+        [{ "node": "Social Configuration", "type": "main", "index": 0 }],
+        [{ "node": "Cloud Configuration", "type": "main", "index": 0 }],
+        [{ "node": "AI Configuration", "type": "main", "index": 0 }]
+      ]
+    },
+    "WhatsApp Configuration": {
+      "main": [[{ "node": "Test WhatsApp API", "type": "main", "index": 0 }]]
+    },
+    "Test WhatsApp API": {
+      "main": [[{ "node": "Encrypt Credentials", "type": "main", "index": 0 }]]
+    },
+    "Encrypt Credentials": {
+      "main": [[{ "node": "Store Integration", "type": "main", "index": 0 }]]
+    },
+    "Multi-Channel Campaign Send": {
+      "main": [[{ "node": "Channel Router", "type": "main", "index": 0 }]]
+    },
+    "Channel Router": {
+      "main": [
+        [{ "node": "Send WhatsApp", "type": "main", "index": 0 }],
+        [{ "node": "Send Email", "type": "main", "index": 0 }],
+        [{ "node": "Send Facebook", "type": "main", "index": 0 }],
+        [{ "node": "Send Instagram", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send WhatsApp": {
+      "main": [[{ "node": "Analytics Aggregator", "type": "main", "index": 0 }]]
+    },
+    "Send Email": {
+      "main": [[{ "node": "Analytics Aggregator", "type": "main", "index": 0 }]]
+    }
+  }
+}

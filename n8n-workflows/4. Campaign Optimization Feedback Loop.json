@@ -1,0 +1,644 @@
+{
+  "name": "Campaign Optimization Feedback Loop",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "campaign-optimization-trigger",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "firstEntryJson"
+        }
+      },
+      "id": "campaign_launch_trigger",
+      "name": "Campaign Launch Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "campaign-opt-001"
+    },
+    {
+      "parameters": {
+        "intervalSize": 15,
+        "interval": "minutes",
+        "triggerAtStart": true
+      },
+      "id": "performance_monitor",
+      "name": "Performance Monitoring Agent",
+      "type": "n8n-nodes-base.interval",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/analytics/real-time-metrics",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"campaignId\": \"{{$json.campaignId}}\",\n  \"timeRange\": {\n    \"start\": \"{{$now.minus({minutes: 15}).toISO()}}\",\n    \"end\": \"{{$now.toISO()}}\"\n  },\n  \"metrics\": [\n    \"impressions\",\n    \"clicks\",\n    \"conversions\",\n    \"spend\",\n    \"revenue\",\n    \"engagement_rate\",\n    \"ctr\",\n    \"conversion_rate\",\n    \"roi\"\n  ]\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.API_TOKEN}}\"\n}"
+      },
+      "id": "collect_metrics",
+      "name": "Collect Real-Time Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Analytics Aggregation\nconst metrics = $input.all();\nconst aggregated = {\n  campaignId: metrics[0].json.campaignId,\n  timestamp: new Date().toISOString(),\n  platforms: {},\n  totals: {\n    impressions: 0,\n    clicks: 0,\n    conversions: 0,\n    spend: 0,\n    revenue: 0\n  },\n  averages: {},\n  trends: {}\n};\n\n// Aggregate by platform\nmetrics.forEach(metric => {\n  const platform = metric.json.platform;\n  if (!aggregated.platforms[platform]) {\n    aggregated.platforms[platform] = {\n      impressions: 0,\n      clicks: 0,\n      conversions: 0,\n      spend: 0,\n      revenue: 0\n    };\n  }\n  \n  // Sum metrics\n  Object.keys(aggregated.totals).forEach(key => {\n    aggregated.platforms[platform][key] += metric.json[key] || 0;\n    aggregated.totals[key] += metric.json[key] || 0;\n  });\n});\n\n// Calculate rates and ROI\naggregated.averages.ctr = (aggregated.totals.clicks / aggregated.totals.impressions * 100).toFixed(2);\naggregated.averages.conversionRate = (aggregated.totals.conversions / aggregated.totals.clicks * 100).toFixed(2);\naggregated.averages.roi = ((aggregated.totals.revenue - aggregated.totals.spend) / aggregated.totals.spend * 100).toFixed(2);\n\n// Calculate trends (compare to previous period)\nconst previousMetrics = await $getWorkflowStaticData('previousMetrics');\nif (previousMetrics) {\n  aggregated.trends.ctr = ((aggregated.averages.ctr - previousMetrics.averages.ctr) / previousMetrics.averages.ctr * 100).toFixed(2);\n  aggregated.trends.conversions = ((aggregated.totals.conversions - previousMetrics.totals.conversions) / previousMetrics.totals.conversions * 100).toFixed(2);\n  aggregated.trends.roi = ((aggregated.averages.roi - previousMetrics.averages.roi) / previousMetrics.averages.roi * 100).toFixed(2);\n}\n\n// Store current metrics for next comparison\n$setWorkflowStaticData('previousMetrics', aggregated);\n\nreturn aggregated;"
+      },
+      "id": "analytics_aggregation",
+      "name": "Analytics Aggregation",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "performance_check",
+              "leftValue": "={{ $json.averages.roi }}",
+              "rightValue": "={{ $json.campaign.targetRoi * 0.8 }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            },
+            {
+              "id": "ctr_check",
+              "leftValue": "={{ $json.averages.ctr }}",
+              "rightValue": "={{ $json.campaign.targetCtr * 0.7 }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            },
+            {
+              "id": "conversion_check",
+              "leftValue": "={{ $json.averages.conversionRate }}",
+              "rightValue": "={{ $json.campaign.targetConversion * 0.75 }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "performance_threshold",
+      "name": "Performance Threshold Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "messageType": "defineBelow",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert digital marketing strategist specializing in campaign optimization. Analyze performance data and provide specific, actionable optimization recommendations. Focus on data-driven insights and proven marketing strategies."
+            },
+            {
+              "role": "user",
+              "content": "Analyze this campaign performance:\n\nMetrics:\n{{JSON.stringify($json.aggregated, null, 2)}}\n\nCampaign Details:\n- Type: {{$json.campaign.type}}\n- Budget: {{$json.campaign.budget}}\n- Target Audience: {{$json.campaign.audience}}\n- Current Content: {{$json.campaign.content}}\n\nProvide optimization recommendations:\n1. Content improvements (headlines, copy, CTAs)\n2. Timing adjustments\n3. Audience targeting refinements\n4. Budget reallocation\n5. Creative variations\n\nReturn as JSON with confidence scores for each recommendation."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 2000,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "ai_optimization_agent",
+      "name": "AI Optimization Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.ML_SERVICE_URL}}/predict/campaign-performance",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"currentMetrics\": {{JSON.stringify($json.aggregated)}},\n  \"proposedOptimizations\": {{JSON.stringify($json.aiRecommendations)}},\n  \"historicalData\": {{JSON.stringify($json.historicalPerformance)}}\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.ML_SERVICE_TOKEN}}\"\n}"
+      },
+      "id": "ml_prediction",
+      "name": "ML Performance Prediction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1450, 250]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.confidenceScore}}",
+              "operation": "greaterEqual",
+              "value2": 80
+            }
+          ]
+        }
+      },
+      "id": "confidence_check",
+      "name": "Confidence Score Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1650, 250]
+    },
+    {
+      "parameters": {
+        "channel": "={{$env.MARKETING_SLACK_CHANNEL}}",
+        "text": "⚡ Campaign Optimization Required",
+        "otherOptions": {
+          "attachments": [
+            {
+              "color": "#ff9800",
+              "title": "Manual Review Needed - Low Confidence",
+              "fields": [
+                {
+                  "title": "Campaign",
+                  "value": "{{$json.campaign.name}}",
+                  "short": true
+                },
+                {
+                  "title": "Current ROI",
+                  "value": "{{$json.aggregated.averages.roi}}%",
+                  "short": true
+                },
+                {
+                  "title": "AI Confidence",
+                  "value": "{{$json.confidenceScore}}%",
+                  "short": true
+                },
+                {
+                  "title": "Recommended Actions",
+                  "value": "{{$json.recommendations.summary}}",
+                  "short": false
+                }
+              ],
+              "actions": [
+                {
+                  "name": "approve",
+                  "text": "✅ Approve Changes",
+                  "type": "button",
+                  "value": "approve_optimizations",
+                  "style": "primary"
+                },
+                {
+                  "name": "modify",
+                  "text": "✏️ Modify",
+                  "type": "button",
+                  "value": "modify_recommendations"
+                },
+                {
+                  "name": "reject",
+                  "text": "❌ Keep Current",
+                  "type": "button",
+                  "value": "reject_changes",
+                  "style": "danger"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "id": "human_review",
+      "name": "Human Review Request",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1850, 350]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "rules": {
+          "rules": [
+            {
+              "operation": "contains",
+              "value1": "={{Object.keys($json.optimizations)}}",
+              "value2": "content",
+              "output": 0
+            },
+            {
+              "operation": "contains",
+              "value1": "={{Object.keys($json.optimizations)}}",
+              "value2": "timing",
+              "output": 1
+            },
+            {
+              "operation": "contains",
+              "value1": "={{Object.keys($json.optimizations)}}",
+              "value2": "audience",
+              "output": 2
+            },
+            {
+              "operation": "contains",
+              "value1": "={{Object.keys($json.optimizations)}}",
+              "value2": "budget",
+              "output": 3
+            },
+            {
+              "operation": "contains",
+              "value1": "={{Object.keys($json.optimizations)}}",
+              "value2": "creative",
+              "output": 4
+            }
+          ]
+        },
+        "fallbackOutput": 5
+      },
+      "id": "optimization_router",
+      "name": "Optimization Type Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [2050, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// A/B Test Creation for Content\nconst optimization = $input.first().json;\nconst variants = [];\n\n// Control variant (current)\nvariants.push({\n  id: 'control',\n  type: 'control',\n  content: optimization.current.content,\n  allocation: 50\n});\n\n// Test variants based on AI recommendations\noptimization.recommendations.content.variations.forEach((variation, index) => {\n  variants.push({\n    id: `variant_${index + 1}`,\n    type: 'test',\n    content: variation,\n    allocation: 50 / optimization.recommendations.content.variations.length,\n    changes: variation.changes\n  });\n});\n\nreturn {\n  testId: `test_${Date.now()}`,\n  campaignId: optimization.campaignId,\n  testType: 'content',\n  variants: variants,\n  duration: optimization.recommendations.testDuration || 7200000, // 2 hours default\n  successMetric: 'ctr'\n};"
+      },
+      "id": "content_ab_test",
+      "name": "Content A/B Test Creator",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [2250, 100]
+    },
+    {
+      "parameters": {
+        "functionCode": "// A/B Test Creation for Timing\nconst optimization = $input.first().json;\nconst variants = [];\n\n// Current timing\nvariants.push({\n  id: 'control',\n  type: 'control',\n  schedule: optimization.current.schedule,\n  allocation: 33\n});\n\n// Test different time slots\noptimization.recommendations.timing.slots.forEach((slot, index) => {\n  variants.push({\n    id: `timing_${index + 1}`,\n    type: 'test',\n    schedule: slot,\n    allocation: 67 / optimization.recommendations.timing.slots.length\n  });\n});\n\nreturn {\n  testId: `timing_test_${Date.now()}`,\n  campaignId: optimization.campaignId,\n  testType: 'timing',\n  variants: variants,\n  duration: 86400000, // 24 hours for timing tests\n  successMetric: 'engagement_rate'\n};"
+      },
+      "id": "timing_ab_test",
+      "name": "Timing A/B Test Creator",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [2250, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Budget Reallocation Logic\nconst optimization = $input.first().json;\nconst currentAllocation = optimization.current.budgetAllocation;\nconst recommendations = optimization.recommendations.budget;\n\nconst newAllocation = {};\nlet totalBudget = optimization.campaign.budget;\n\n// Calculate new allocation based on performance\nObject.keys(currentAllocation).forEach(channel => {\n  const performance = optimization.aggregated.platforms[channel];\n  const currentSpend = currentAllocation[channel];\n  \n  // Increase budget for high-performing channels\n  if (performance.roi > optimization.campaign.targetRoi * 1.2) {\n    newAllocation[channel] = currentSpend * 1.3; // 30% increase\n  }\n  // Decrease for underperforming\n  else if (performance.roi < optimization.campaign.targetRoi * 0.8) {\n    newAllocation[channel] = currentSpend * 0.7; // 30% decrease\n  }\n  else {\n    newAllocation[channel] = currentSpend;\n  }\n});\n\n// Normalize to match total budget\nconst sum = Object.values(newAllocation).reduce((a, b) => a + b, 0);\nObject.keys(newAllocation).forEach(channel => {\n  newAllocation[channel] = (newAllocation[channel] / sum) * totalBudget;\n});\n\nreturn {\n  campaignId: optimization.campaignId,\n  adjustmentType: 'budget_reallocation',\n  current: currentAllocation,\n  proposed: newAllocation,\n  expectedImpact: recommendations.expectedRoiImprovement\n};"
+      },
+      "id": "budget_optimizer",
+      "name": "Budget Reallocation Logic",
+      "type": "n8n-nodes-base.functionItem",
+      "typeVersion": 1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/campaigns/apply-optimization",
+        "method": "POST",
+        "bodyParametersJson": "={{JSON.stringify($json)}}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.API_TOKEN}}\"\n}"
+      },
+      "id": "apply_optimization",
+      "name": "Apply Campaign Adjustments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2450, 250]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "optimization_history",
+        "columns": "campaign_id,optimization_type,before_metrics,after_metrics,changes_applied,confidence_score,status",
+        "options": {
+          "queryName": "log_optimization"
+        }
+      },
+      "id": "log_optimization",
+      "name": "Log Optimization History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2650, 250]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "minutes"
+      },
+      "id": "performance_wait",
+      "name": "Wait for Performance Data",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2850, 250]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/analytics/compare-performance",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"campaignId\": \"{{$json.campaignId}}\",\n  \"beforeOptimization\": \"{{$json.timestamp}}\",\n  \"optimizationId\": \"{{$json.optimizationId}}\"\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.API_TOKEN}}\"\n}"
+      },
+      "id": "verify_improvement",
+      "name": "Verify Performance Improvement",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3050, 250]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.improvement.roi}}",
+              "operation": "greaterEqual",
+              "value2": 5
+            }
+          ]
+        }
+      },
+      "id": "improvement_check",
+      "name": "Performance Improved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3250, 250]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BACKEND_URL}}/api/campaigns/rollback",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"campaignId\": \"{{$json.campaignId}}\",\n  \"optimizationId\": \"{{$json.optimizationId}}\",\n  \"reason\": \"Performance degraded after optimization\"\n}",
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.API_TOKEN}}\"\n}"
+      },
+      "id": "rollback_changes",
+      "name": "Rollback Changes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3450, 350]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "ml_training_data",
+        "updateKey": "optimization_id",
+        "columns": "campaign_id,optimization_type,before_metrics,after_metrics,success,improvement_percentage",
+        "options": {
+          "queryName": "update_ml_training"
+        }
+      },
+      "id": "update_ml_model",
+      "name": "Update ML Training Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [3450, 150]
+    }
+  ],
+  "connections": {
+    "Campaign Launch Trigger": {
+      "main": [
+        [
+          {
+            "node": "Performance Monitoring Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Performance Monitoring Agent": {
+      "main": [
+        [
+          {
+            "node": "Collect Real-Time Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Real-Time Metrics": {
+      "main": [
+        [
+          {
+            "node": "Analytics Aggregation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analytics Aggregation": {
+      "main": [
+        [
+          {
+            "node": "Performance Threshold Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Performance Threshold Check": {
+      "main": [
+        [
+          {
+            "node": "AI Optimization Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Performance Monitoring Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Optimization Agent": {
+      "main": [
+        [
+          {
+            "node": "ML Performance Prediction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ML Performance Prediction": {
+      "main": [
+        [
+          {
+            "node": "Confidence Score Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence Score Check": {
+      "main": [
+        [
+          {
+            "node": "Optimization Type Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Human Review Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Optimization Type Router": {
+      "main": [
+        [
+          {
+            "node": "Content A/B Test Creator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Timing A/B Test Creator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apply Campaign Adjustments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Budget Reallocation Logic",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apply Campaign Adjustments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content A/B Test Creator": {
+      "main": [
+        [
+          {
+            "node": "Apply Campaign Adjustments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Timing A/B Test Creator": {
+      "main": [
+        [
+          {
+            "node": "Apply Campaign Adjustments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Budget Reallocation Logic": {
+      "main": [
+        [
+          {
+            "node": "Apply Campaign Adjustments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Campaign Adjustments": {
+      "main": [
+        [
+          {
+            "node": "Log Optimization History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Optimization History": {
+      "main": [
+        [
+          {
+            "node": "Wait for Performance Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Performance Data": {
+      "main": [
+        [
+          {
+            "node": "Verify Performance Improvement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Performance Improvement": {
+      "main": [
+        [
+          {
+            "node": "Performance Improved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Performance Improved?": {
+      "main": [
+        [
+          {
+            "node": "Update ML Training Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rollback Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow-id"
+  }
+}

@@ -2127,7 +2127,7 @@ All operations from onboarding to content distribution and analytics are powered
     
     Step-by-Step User Journey
     flowchart TD
-    ```flowchart TD
+    ```mermaid
     graph TD;
         subgraph "1. Authentication Phase"
             A[User Access] --> B{New or Existing?}

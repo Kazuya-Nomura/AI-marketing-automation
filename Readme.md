@@ -2131,8 +2131,9 @@ All operations from onboarding to content distribution and analytics are powered
 
     flowchart TD
     ```mermaid
-    flowchart TD;
-        subgraph "1. Authentication Phase"
+    flowchart TD
+
+        subgraph "1\. Authentication Phase"
             A[User Access] --> B{New or Existing?}
             B -->|New User| C[Registration Options]
             B -->|Existing User| D[Login Options]
@@ -2148,7 +2149,7 @@ All operations from onboarding to content distribution and analytics are powered
             J --> K{Profile Complete?}
         end
         
-        subgraph "2. Integration Wizard"
+        subgraph "2\. Integration Wizard"
             K -->|No| L[Start Wizard]
             L --> M[Business Profile]
             M --> N[WhatsApp Setup]
@@ -2159,7 +2160,7 @@ All operations from onboarding to content distribution and analytics are powered
             R --> S[Save Integrations]
         end
         
-        subgraph "3. Dashboard Access"
+        subgraph "3\. Dashboard Access"
             K -->|Yes| T[My Integrations]
             S --> T
             T --> U[View Status]
@@ -2167,7 +2168,7 @@ All operations from onboarding to content distribution and analytics are powered
             T --> W[Manage Settings]
         end
         
-        subgraph "4. Campaign Launch"
+        subgraph "4\. Campaign Launch"
             T --> X[Import Leads]
             X --> Y[Map Fields]
             Y --> Z[Create Campaign]

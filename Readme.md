@@ -328,8 +328,8 @@ Both workflows include comprehensive error handling, performance tracking, and i
 ## 1. ROI Calculation & Property Matching Workflow
 Visual Diagram
 
-graph TB
 ```mermaid
+graph TB
     Start([Lead Trigger/Request]) --> A[Lead Profile Analyzer]
     
     A --> B{Profile Complete?}
@@ -370,8 +370,8 @@ graph TB
 
 ## 2. Emergency Response & Escalation Workflow
 Visual Diagram
-mermaid
-```graph TB
+```mermaid
+graph TB
     Start([System Alert/Error]) --> A[Error Detection Webhook]
     
     A --> B{Error Type?}

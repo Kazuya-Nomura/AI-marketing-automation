@@ -865,7 +865,7 @@ A set of documentation sections you can drop into your “Business Logic & Objec
 
 ## 1. Integration Configuration Workflow
 flowchart TD
-```
+```mermaid
 graph TD
   A[User lands on Login Page] --> B{SSO or Register}
   B -->|Google SSO| C[Auth0 ↔ Google OAuth]

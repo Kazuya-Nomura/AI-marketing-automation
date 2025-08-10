@@ -1,3 +1,515 @@
+# Workflow
+
+## 1. Lead Intelligence & Scoring Workflow
+
+Visual Diagram Representation
+```
+┌─────────────┐
+│  Webhook    │
+│  New Lead   │
+│     ⚡      │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐     ┌─────────────┐
+│ Data Valid? │───▶│ Send Error  │
+│   Router    │ No  │ Notification│
+└──────┬──────┘     └─────────────┘
+       │ Yes
+       ▼
+┌─────────────┐     ┌─────────────┐
+│Lead Enrichm.│────▶│External APIs│
+│   Agent     │     │ (Parallel)  │
+└──────┬──────┘     └─────────────┘
+       │                    │
+       ▼                    │
+┌─────────────┐             │
+│ AI Scoring  │◀────────────┘
+│Agent (GPT-4)│
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│Score Router │
+│   (Hot/     │
+│ Warm/Cold)  │
+└──┬───┬───┬──┘
+   │   │   │
+   ▼   ▼   ▼
+┌───┐┌───┐┌───┐
+│Hot││Wrm││Cld│
+│WA ││Eml││Eml│
+└───┘└───┘└───┘
+```
+
+Implementation Notes:
+- Webhook Security: Add authentication token validation
+- Error Handling: Implement try-catch blocks in code nodes
+- Parallel Processing: Use split-in-batches for bulk leads
+- Rate Limiting: Add delays between API calls
+- Monitoring: Track scoring accuracy and conversion rates
+- Would you like me to continue with the next workflow (Multi-Channel Content Distribution)?
+
+## 2. Multi-Channel Content Distribution Workflow
+Visual Diagram Representation
+
+```
+┌─────────────┐
+│  Campaign   │
+│ Trigger API │
+│     ⚡      │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐     ┌─────────────┐
+│Content Type │────▶│ Validation  │
+│  Router     │ No  │   Error     │
+└──────┬──────┘     └─────────────┘
+       │ Yes
+       ▼
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ AI Content  │────▶│ DALL-E 3   │────▶│ Stable      │
+│ Generator   │     │ Image Gen   │     │ Video Gen   │
+│  (GPT-4)    │     └─────────────┘     └─────────────┘
+└──────┬──────┘                                │
+       │                                       │
+       ▼                                       │
+┌─────────────┐     ┌──────────────────────────┘
+│ A/B Testing │     │
+│   Router    │     │
+└──┬───┬───┬──┘     │
+   │   │   │        │
+   ▼   ▼   ▼        ▼
+┌───────────────────────────────────────────┐
+│         Parallel Distribution             │
+├───┬─────┬─────┬─────┬─────┬─────┬─────┬───┤
+│FB │ IG  │ LI  │ WA  │ YT  │ TT  │ SMS │EML│
+└───┴─────┴─────┴─────┴─────┴─────┴─────┴───┘
+   │   │     │     │     │     │     │     │
+   ▼   ▼     ▼     ▼     ▼     ▼     ▼     ▼
+┌─────────────────────────────────────────────┐
+│        Performance Tracking Loop            │
+│   ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐           │
+│   │CTR  │ │Conv │ │Eng  │ │Reach│           │
+│   └─────┘ └─────┘ └─────┘ └─────┘           │
+└─────────────────────────────────────────────┘
+```
+## 3. Lead Nurture Sequence with Human-in-Loop
+Visual Diagram Representation
+```
+┌─────────────┐
+│Lead Trigger │
+│Temperature  │
+│ Detection   │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐     ┌─────────────┐
+│Temperature  │────▶│    Cold     │
+│   Router    │     │Lead Queue   │
+└──┬───┬───┬──┘     └─────────────┘
+   │   │   │
+Hot│Wrm│Cold
+   ▼   ▼   ▼
+┌─────────────┐     ┌─────────────┐
+│Value Check  │     │ Standard    │
+│≥ ₹2Cr?      │ No  │ Nurture     │
+└──────┬──────┘     │ Sequence    │
+       │Yes         └─────────────┘
+       ▼
+┌─────────────┐     ┌─────────────┐
+│ Slack Alert │────▶│   Human     │
+│High-Value   │     │ Approval    │
+│Lead Review  │     │  Gateway    │
+└─────────────┘     └──────┬──────┘
+                           │
+                    ┌──────┴──────┐
+              Approve│            │Reject
+                    ▼             ▼
+              ┌─────────────┐ ┌─────────────┐
+              │ Premium     │ │ Standard    │
+              │ Sequence    │ │ Sequence    │
+              └─────────────┘ └─────────────┘
+                     │             │
+                     ▼             ▼
+              ┌─────────────────────────────┐
+              │     Sequential Follow-up    │
+              │  Day 1 → Day 3 → Day 7 →    │
+              │  Day 14 → Day 30            │
+              └─────────────────────────────┘
+                           │
+                           ▼
+              ┌─────────────────────────────┐
+              │    Engagement Tracking      │
+              │  📊 Opens │ 👆 Clicks │    │
+              │  💬 Replies │ 📞 Calls     │
+              └─────────────────────────────┘
+```
+
+Implementation Notes:
+- Multi-Channel Content Distribution:
+- Parallel Processing: All platforms receive content simultaneously
+- AI-Generated Media: DALL-E 3 + Stable Diffusion for diverse visuals
+- Performance Tracking: Real-time metrics collection every hour
+- A/B Testing: Automatic variant generation and testing
+- Lead Nurture with Human-in-Loop:
+- Value Threshold: ₹2Cr+ leads trigger human review
+- Approval Gateway: Slack integration for quick decisions
+- Sequential Delivery: Time-delayed message sequences
+- Engagement Monitoring: Real-time tracking with sales alerts
+- Multi-Channel: WhatsApp, Email, SMS based on preferences
+- Both workflows include comprehensive error handling, logging, and performance optimization features from the main FineAcers system.
+
+## 4. Campaign Optimization Feedback Loop
+Visual Diagram Representation
+```
+
+┌─────────────┐
+│  Campaign   │
+│   Launch    │
+│   Trigger   │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────────────────────────┐
+│    Performance Monitoring Agent     │
+│ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐     │
+│ │CTR  │ │Conv │ │ROI  │ │Eng  │     │
+│ └─────┘ └─────┘ └─────┘ └─────┘     │
+└─────────────┬───────────────────────┘
+               │ 15min intervals
+               ▼
+┌─────────────────────────────────────┐
+│      Analytics Aggregation          │
+│  ┌────────────────┐                 │
+│  │Platform Metrics│                 │
+│  ├────────────────┤                 │
+│  │ FB │IG │LI│WA  │                 │
+│  └────────────────┘                 │
+└─────────────┬───────────────────────┘
+               │
+               ▼
+┌─────────────┐     ┌─────────────┐
+│Performance  │ No  │  Continue   │
+│Threshold?   │────▶│ Monitoring  │
+└──────┬──────┘     └─────────────┘
+       │ Yes
+       ▼
+┌─────────────────────────────────────┐
+│       AI Optimization Agent         │
+│  ┌─────────────┐ ┌─────────────┐    │
+│  │GPT-4 Analyze│ │ML Prediction│    │
+│  └─────────────┘ └─────────────┘    │
+└─────────────┬───────────────────────┘
+               │
+               ▼
+┌─────────────┐     ┌─────────────┐
+│Confidence   │ Low │   Human     │
+│Score > 80%? │────▶│  Review     │
+└──────┬──────┘     └─────────────┘
+       │ High
+       ▼
+┌─────────────────────────────────────┐
+│        Optimization Router          │
+├─────┬─────┬─────┬─────┬─────────────┤
+│Copy │Time │Aud  │Bid  │Creative     │
+└──┬──┴──┬──┴──┬──┴──┬──┴────┬────────┘
+   │     │     │     │       │
+   ▼     ▼     ▼     ▼       ▼
+┌─────────────────────────────────────┐
+│         A/B Test Creation           │
+│  ┌─────┐ ┌─────┐ ┌─────┐            │
+│  │Var A│ │Var B│ │Ctrl │            │
+│  └─────┘ └─────┘ └─────┘            │
+└─────────────┬───────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│    Automatic Campaign Adjustment    │
+│  • Update Content                   │
+│  • Shift Budget                     │
+│  • Change Timing                    │
+│  • Modify Targeting                 │
+└─────────────┬───────────────────────┘
+               │
+               ▼
+┌─────────────┐     ┌─────────────┐
+│  Rollback   │────▶│Performance  │
+│  Safety     │ No  │ Improved?   │
+└─────────────┘     └──────┬──────┘
+                           │ Yes
+                           ▼
+                    ┌─────────────┐
+                    │   Apply &   │
+                    │   Learn     │
+                    └─────────────┘
+```
+
+## 5. Conversational AI Sales Agent Hierarchy
+Visual Diagram Representation
+```
+┌─────────────┐
+│  Customer   │
+│  Message    │
+│   Input     │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────────────────────────┐
+│    Primary Conversation Agent       │
+│  ┌─────────────┐ ┌─────────────┐    │
+│  │Context Load │ │Lead Profile │    │
+│  └─────────────┘ └─────────────┘    │
+└─────────────┬───────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│      Intent Detection Router        │
+│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐    │
+│  │Price│ │Prop │ │Book │ │Gen  │    │
+│  └─────┘ └─────┘ └─────┘ └─────┘    │
+└──┬────┬────┬────┬───────────────────┘
+   │    │    │    │
+   ▼    ▼    ▼    ▼
+┌────────────────────────────────────┐
+│      Specialized Agent Layer       │
+├────────┬────────┬────────┬─────────┤
+│Pricing │Property│Schedule│ General │
+│Expert  │Info Bot│Assistant│Support │
+└────┬───┴───┬────┴───┬────┴────┬────┘
+     │       │        │         │
+     ▼       ▼        ▼         ▼
+┌────────────────────────────────────┐
+│    Confidence & Escalation Check   │
+│  ┌──────────────┐┌─────────────┐   │
+│  │Confidence<70%││Complex Query│   │
+│  └──────┬───────┘└──────┬──────┘   │
+└─────────┼───────────────┼──────────┘
+          ▼               ▼
+┌─────────────────────────────────────┐
+│      Human Handoff Trigger          │
+│  ┌─────────────┐ ┌─────────────┐    │
+│  │Sales Alert  │ │Queue Position│   │
+│  └─────────────┘ └─────────────┘    │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│         CRM Integration             │
+│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐    │
+│  │Log  │ │Lead │ │Task │ │Alert│    │
+│  │Conv │ │Update││Create││Team │    │
+│  └─────┘ └─────┘ └─────┘ └─────┘    │
+└─────────────────────────────────────┘
+               │
+               ▼
+┌─────────────┐     ┌─────────────┐
+│  Response   │────▶│ Performance │
+│  Delivery   │     │  Analytics  │
+└─────────────┘     └─────────────┘
+```
+Implementation Notes:
+- Campaign Optimization Feedback Loop:
+- Continuous Monitoring: 15-minute intervals for real-time performance tracking
+- Multi-Metric Analysis: CTR, Conversion Rate, ROI, Engagement tracked simultaneously
+- AI + ML Hybrid: GPT-4 for recommendations + ML for performance prediction
+- Automatic Rollback: Safety mechanism if performance degrades
+- Learning Loop: All results feed back to improve future predictions
+- Conversational AI Sales Agent Hierarchy:
+- Multi-Tier Architecture: Primary agent → Intent routing → Specialized agents
+- Context Preservation: Redis for conversation state management
+- Confidence-Based Escalation: Automatic human handoff when confidence < 70%
+- CRM Integration: Real-time lead updates and task creation
+- Performance Analytics: Every interaction tracked for continuous improvement
+- Specialized Expertise: Dedicated agents for pricing, property info, and scheduling
+
+Both workflows include comprehensive error handling, performance tracking, and integration with the FineAcers ecosystem.
+
+## 1. ROI Calculation & Property Matching Workflow
+Visual Diagram
+
+graph TB
+```mermaid
+    Start([Lead Trigger/Request]) --> A[Lead Profile Analyzer]
+    
+    A --> B{Profile Complete?}
+    B -->|No| B1[Enrich Lead Data]
+    B1 --> A
+    B -->|Yes| C[Extract Preferences]
+    
+    C --> D[Property RAG Search]
+    D --> E[Vector DB Query]
+    E --> F[Filter Properties]
+    
+    F --> G[Parallel ROI Calculations]
+    G --> G1[Basic ROI]
+    G --> G2[Financed ROI]
+    G --> G3[Tax Benefits]
+    G --> G4[Market Trends]
+    
+    G1 & G2 & G3 & G4 --> H[AI Recommendation Engine]
+    
+    H --> I[Score & Rank Properties]
+    I --> J[Generate Insights]
+    
+    J --> K{Lead Temperature?}
+    K -->|Hot| K1[Detailed Report + Video]
+    K -->|Warm| K2[Standard Report]
+    K -->|Cold| K3[Summary Report]
+    
+    K1 & K2 & K3 --> L[Personalization Engine]
+    L --> M[Multi-Channel Delivery]
+    
+    M --> N1[WhatsApp]
+    M --> N2[Email]
+    M --> N3[CRM Update]
+    
+    N1 & N2 & N3 --> End([Track Engagement])
+```
+
+
+## 2. Emergency Response & Escalation Workflow
+Visual Diagram
+mermaid
+```graph TB
+    Start([System Alert/Error]) --> A[Error Detection Webhook]
+    
+    A --> B{Error Type?}
+    B -->|System Failure| C1[Circuit Breaker Check]
+    B -->|Hot Lead Alert| C2[Priority Lead Handler]
+    B -->|Service Down| C3[Service Health Check]
+    B -->|Data Error| C4[Data Integrity Check]
+    
+    C1 --> D1{Circuit Open?}
+    D1 -->|Yes| E1[Activate Fallback]
+    D1 -->|No| E2[Retry with Backoff]
+    
+    C2 --> F[Parallel Notifications]
+    F --> F1[SMS to Sales Manager]
+    F --> F2[WhatsApp to BDM]
+    F --> F3[Email to Team]
+    F --> F4[CRM Alert]
+    
+    C3 --> G[Service Recovery]
+    G --> G1[Restart Service]
+    G --> G2[Switch to Backup]
+    G --> G3[Scale Resources]
+    
+    C4 --> H[Data Recovery]
+    H --> H1[Validate Data]
+    H --> H2[Restore from Backup]
+    H --> H3[Audit Trail]
+    
+    E1 & E2 & F4 & G3 & H3 --> I[Admin Dashboard Alert]
+    
+    I --> J{Critical?}
+    J -->|Yes| K[Page On-Call]
+    J -->|No| L[Log & Monitor]
+    
+    K --> M[Create Incident]
+    L --> N[Update Metrics]
+    
+    M & N --> O[Post-Mortem Analysis]
+    O --> End([Resolution & Learning])
+```
+
+## 8. Cross-Regional Data Sync Workflow
+Visual Diagram Representation
+```
+┌─────────────────┐
+│   Schedule      │
+│   Trigger       │
+│  (Every 5 min)  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Get Regional   │
+│  Configurations │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Fetch Changed   │
+│  Data Queue     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐     ┌──────────────┐
+│  Compliance     │────▶│ Region Rules │
+│  Check Agent    │     │   Database   │
+└────────┬────────┘     └──────────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Data Transform  │
+│   & Masking     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│Regional Router  │
+│   (Split by     │
+│    Region)      │
+└──┬──┬──┬──┬────┘
+   │  │  │  │
+   ▼  ▼  ▼  ▼
+┌───┐┌───┐┌───┐┌───┐
+│UAE││IND││USA││EUR│
+│Syn││Syn││Syn││Syn│
+└─┬─┘└─┬─┘└─┬─┘└─┬─┘
+  │    │    │    │
+  └────┴────┴────┘
+         │
+         ▼
+┌─────────────────┐
+│Conflict Handler │
+│   (AI Agent)    │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Sync Results   │
+│  Aggregator     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Audit Logger   │
+│  & Monitoring   │
+└─────────────────┘
+```
+Implementation Notes:
+- Authentication & Security: 
+- Each regional endpoint uses OAuth2 with region-specific credentials
+- Data is encrypted in transit using TLS 1.3
+- Implement API key rotation every 30 days
+- Compliance Features: 
+- GDPR compliance for EUR region with consent tracking
+- Data residency enforcement (data doesn't leave region)
+- PII masking based on regional laws
+- Audit trail for all sync operations
+- Performance Optimization: 
+- Batch processing up to 1000 records per sync
+- Parallel execution for different regions
+- Connection pooling for database queries
+- Redis caching for frequently accessed config
+- Error Handling: 
+- Retry mechanism with exponential backoff
+- Dead letter queue for failed syncs
+- Circuit breaker pattern for regional endpoints
+- Detailed error logging with correlation IDs
+- Monitoring & Alerts: 
+- Real-time Slack notifications for failures
+- Prometheus metrics for sync performance
+- Grafana dashboards for regional health
+- SLA monitoring (99.9% uptime target)
+- Conflict Resolution Strategies: 
+- Last-write-wins with timestamp comparison
+- Regional priority (home region wins)
+- Manual review queue for critical conflicts
+- Version control with change history
+
 # priority features in the same budget, so we can award the project immediately:
 - Consent & Deliverability Guardrails – Automatic opt-in/opt-out sync across WhatsApp/Email/SMS, frequency caps, quiet hours, and domain health setup (SPF/DKIM/DMARC).
 - Attribution to Revenue – Track the full journey from first click → meeting → booking/contract, and push revenue data back into the optimizer so the system learns what really converts.
@@ -9,24 +521,27 @@ These are the highest-impact, low-overhead additions that will make the platform
 
 
 # FINEACERS AI MARKETING AUTOMATION - COMPLETE TECHNICAL MANUAL
-- **TABLE OF CONTENTS**
-- **System Architecture**
-- **Technology Stack**
-- **Server Requirements**
-- **Development Environment Setup**
-- **Database Schema**
-- **Core Backend Development**
-- **N8N Workflow Implementation**
-- **API Integrations**
-- **Frontend Development**
-- **Mobile App Development**
-- **Deployment Guide**
-- **Security Implementation**
-- **Testing & QA**
-- **Monitoring & Maintenance**
+
+**TABLE OF CONTENTS**
+
+
+- System Architecture
+- Technology Stack
+- Server Requirements
+- Development Environment Setup
+- Database Schema
+- Core Backend Development
+- N8N Workflow Implementation
+- API Integrations
+- Frontend Development
+- Mobile App Development
+- Deployment Guide
+- Security Implementation
+- Testing & QA
+- Monitoring & Maintenance
 
 ## 1. SYSTEM ARCHITECTURE {#system-architecture}
-```json
+```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          LOAD BALANCER (Nginx)                          │
 └────────────────────┬────────────────────────┬───────────────────────────┘
@@ -1244,7 +1759,7 @@ IMPLEMENTATION SUMMARY
     
     This comprehensive annexure addresses all critical requirements identified in the assessment:
     
-    ✅ Completed Enhancements:
+✅ Completed Enhancements:
     
     Advanced Security & Data Isolation
     
@@ -1316,7 +1831,7 @@ IMPLEMENTATION SUMMARY
     
     Materialized views
     
-    🚀 Next Steps:
+🚀 Next Steps:
     
     Immediate Actions:
     
@@ -1357,9 +1872,9 @@ FINEACERS AI MARKETING AUTOMATION – MASTER OVERVIEW
 
 🔷 What Is This Program?
     
-    FineAcers AI Marketing Automation is an intelligent, self-service platform designed for real estate and hospitality sales teams to automate and enhance their lead generation, qualification, content creation, and cross-platform marketing execution.
+FineAcers AI Marketing Automation is an intelligent, self-service platform designed for real estate and hospitality sales teams to automate and enhance their lead generation, qualification, content creation, and cross-platform marketing execution.
     
-    This unified system combines:
+This unified system combines:
     
     CRM functions
     
@@ -1448,9 +1963,9 @@ All operations from onboarding to content distribution and analytics are powered
 
 ⚙️ Key Features
 
-    Category
+        Category
 
-    Features
+        Features
 
 🔐 User Access
 
@@ -1557,109 +2072,109 @@ All operations from onboarding to content distribution and analytics are powered
 🚀 Expected Outcomes & Benefits
 
 
-Benefit
+    Benefit
 
-Impact
+    Impact
 
 🔥 Higher Conversions
 
 
-25–50% boost in lead-to-sale ratios
+    25–50% boost in lead-to-sale ratios
 
 ⏱️ Time Savings
 
 
-40–60% reduction in manual campaign handling
+    40–60% reduction in manual campaign handling
 
 🎯 Smarter Targeting
 
-AI-led segmentation based on live engagement and readiness
+    AI-led segmentation based on live engagement and readiness
 
 📈 Real-Time Decisions
 
 
-Analytics dashboards and lead heatmaps
+    Analytics dashboards and lead heatmaps
 
 🌍 Global Readiness
 
-Multi-region, multi-language scaling supported
+    Multi-region, multi-language scaling supported
 
 
 
 🧰 Technical Summary (Quick Access for Developers)
 
-Frontend: React, TailwindCSS, React Native
+    Frontend: React, TailwindCSS, React Native
 
-Backend: Node.js (Express), Python (FastAPI)
+    Backend: Node.js (Express), Python (FastAPI)
 
-Database: PostgreSQL 15+, Redis 7+
+    Database: PostgreSQL 15+, Redis 7+
 
-Workflow Engine: N8N
+    Workflow Engine: N8N
 
-AI Services: OpenAI, Stable Diffusion, ElevenLabs
+    AI Services: OpenAI, Stable Diffusion, ElevenLabs
 
-Infrastructure: DigitalOcean, Docker/K8s, Prometheus, Cloudflare
+    Infrastructure: DigitalOcean, Docker/K8s, Prometheus, Cloudflare
 
 
-Fine Acers Marketing Automation - Complete User Onboarding System
+    Fine Acers Marketing Automation - Complete User Onboarding System
     
 1. Onboarding Logic & Process Flow ✓
     
-Step-by-Step User Journey
+    Step-by-Step User Journey
 
-flowchart TD
+    flowchart TD
 
-```
-subgraph "1. Authentication Phase"
-        A[User Access] --> B{New or Existing?}
-        B -->|New User| C[Registration Options]
-        B -->|Existing User| D[Login Options]
+    ```
+        subgraph "1. Authentication Phase"
+            A[User Access] --> B{New or Existing?}
+            B -->|New User| C[Registration Options]
+            B -->|Existing User| D[Login Options]
+            
+            C --> E[Google SSO]
+            C --> F[Enterprise SAML/OIDC]
+            C --> G[Email/Password]
+            
+            D --> H[SSO Login]
+            D --> I[Credential Login]
+            
+            E & F & G & H & I --> J[JWT Token]
+            J --> K{Profile Complete?}
+        end
         
-        C --> E[Google SSO]
-        C --> F[Enterprise SAML/OIDC]
-        C --> G[Email/Password]
+        subgraph "2. Integration Wizard"
+            K -->|No| L[Start Wizard]
+            L --> M[Business Profile]
+            M --> N[WhatsApp Setup]
+            N --> O[Email Config]
+            O --> P[Social Media]
+            P --> Q[Cloud & AI]
+            Q --> R[Review & Test]
+            R --> S[Save Integrations]
+        end
         
-        D --> H[SSO Login]
-        D --> I[Credential Login]
+        subgraph "3. Dashboard Access"
+            K -->|Yes| T[My Integrations]
+            S --> T
+            T --> U[View Status]
+            T --> V[Test Connections]
+            T --> W[Manage Settings]
+        end
         
-        E & F & G & H & I --> J[JWT Token]
-        J --> K{Profile Complete?}
-    end
-    
-    subgraph "2. Integration Wizard"
-        K -->|No| L[Start Wizard]
-        L --> M[Business Profile]
-        M --> N[WhatsApp Setup]
-        N --> O[Email Config]
-        O --> P[Social Media]
-        P --> Q[Cloud & AI]
-        Q --> R[Review & Test]
-        R --> S[Save Integrations]
-    end
-    
-    subgraph "3. Dashboard Access"
-        K -->|Yes| T[My Integrations]
-        S --> T
-        T --> U[View Status]
-        T --> V[Test Connections]
-        T --> W[Manage Settings]
-    end
-    
-    subgraph "4. Campaign Launch"
-        T --> X[Import Leads]
-        X --> Y[Map Fields]
-        Y --> Z[Create Campaign]
-        Z --> AA[Multi-Channel Canvas]
-        AA --> AB[Schedule & Launch]
-    end
-    
-    subgraph "Error Handling"
-        N & O & P & Q -.->|Failure| AC[Error Handler]
-        AC --> AD[Retry Logic]
-        AC --> AE[Support Ticket]
-        AD --> L
-    end
-```
+        subgraph "4. Campaign Launch"
+            T --> X[Import Leads]
+            X --> Y[Map Fields]
+            Y --> Z[Create Campaign]
+            Z --> AA[Multi-Channel Canvas]
+            AA --> AB[Schedule & Launch]
+        end
+        
+        subgraph "Error Handling"
+            N & O & P & Q -.->|Failure| AC[Error Handler]
+            AC --> AD[Retry Logic]
+            AC --> AE[Support Ticket]
+            AD --> L
+        end
+    ```
 
 2. Dashboard & UX Specifications ✓
 
@@ -1679,157 +2194,157 @@ subgraph "1. Authentication Phase"
     
     3.1 Complete System Architecture
 
-```
-    flowchart TB
-    subgraph "Frontend Layer"
-        UI[React UI]
-        AUTH[Auth0 SDK]
-        API[API Client]
-    end
-    
-    subgraph "API Gateway"
-        NGINX[Nginx]
-        RL[Rate Limiter]
-        CORS[CORS Handler]
-    end
-    
-    subgraph "Application Layer"
-        REST[REST API]
-        GQL[GraphQL API]
-        WS[WebSocket Server]
-        QUEUE[Job Queue]
-    end
-    
-    subgraph "Integration Layer"
-        N8N[n8n Workflows]
-        CONN[Connector Registry]
-        ADAPT[Channel Adapters]
-    end
-    
-    subgraph "Data Layer"
-        PG[(PostgreSQL)]
-        REDIS[(Redis Cache)]
-        VAULT[(HashiCorp Vault)]
-        S3[(Object Storage)]
-    end
-    
-    subgraph "External Services"
-        WA[WhatsApp API]
-        SMTP[Email Servers]
-        SOCIAL[Social APIs]
-        AI[AI Services]
-    end
-    
-    UI --> AUTH --> API --> NGINX
-    NGINX --> RL --> CORS --> REST
-    REST --> QUEUE --> N8N
-    N8N --> CONN --> ADAPT
-    ADAPT --> WA & SMTP & SOCIAL & AI
-    REST --> PG & REDIS
-    CONN --> VAULT
-    API --> S3
-```
+    ```
+        flowchart TB
+        subgraph "Frontend Layer"
+            UI[React UI]
+            AUTH[Auth0 SDK]
+            API[API Client]
+        end
+        
+        subgraph "API Gateway"
+            NGINX[Nginx]
+            RL[Rate Limiter]
+            CORS[CORS Handler]
+        end
+        
+        subgraph "Application Layer"
+            REST[REST API]
+            GQL[GraphQL API]
+            WS[WebSocket Server]
+            QUEUE[Job Queue]
+        end
+        
+        subgraph "Integration Layer"
+            N8N[n8n Workflows]
+            CONN[Connector Registry]
+            ADAPT[Channel Adapters]
+        end
+        
+        subgraph "Data Layer"
+            PG[(PostgreSQL)]
+            REDIS[(Redis Cache)]
+            VAULT[(HashiCorp Vault)]
+            S3[(Object Storage)]
+        end
+        
+        subgraph "External Services"
+            WA[WhatsApp API]
+            SMTP[Email Servers]
+            SOCIAL[Social APIs]
+            AI[AI Services]
+        end
+        
+        UI --> AUTH --> API --> NGINX
+        NGINX --> RL --> CORS --> REST
+        REST --> QUEUE --> N8N
+        N8N --> CONN --> ADAPT
+        ADAPT --> WA & SMTP & SOCIAL & AI
+        REST --> PG & REDIS
+        CONN --> VAULT
+        API --> S3
+    ```
 
-3.2 Data Schema ER Diagram
+    3.2 Data Schema ER Diagram
 
-erDiagram
+- erDiagram
 
-```
+    ```
 
-USERS ||--o{ USER_INTEGRATIONS : has
-    USERS ||--o{ CAMPAIGNS : creates
-    USERS ||--o{ LEADS : imports
-    USERS ||--o{ AUDIT_LOGS : generates
-    
-    USER_INTEGRATIONS ||--o{ INTEGRATION_LOGS : tracks
-    
-    CAMPAIGNS ||--o{ CAMPAIGN_CHANNELS : contains
-    CAMPAIGNS ||--o{ CAMPAIGN_RECIPIENTS : targets
-    CAMPAIGNS ||--o{ CAMPAIGN_ANALYTICS : produces
-    
-    LEADS ||--o{ LEAD_TAGS : has
-    LEADS ||--o{ CAMPAIGN_RECIPIENTS : receives
-    
-    USERS {
-        uuid id PK
-        string auth0_id UK
-        string email UK
-        string name
-        string company_name
-        string industry
-        jsonb marketing_goals
-        jsonb onboarding_state
-        jsonb metadata
-        timestamp created_at
-        timestamp updated_at
-    }
-    
-    USER_INTEGRATIONS {
-        uuid id PK
-        uuid user_id FK
-        string type
-        string provider
-        string status
-        jsonb encrypted_credentials
-        jsonb test_results
-        array permissions
-        jsonb metadata
-        timestamp created_at
-        timestamp updated_at
-    }
-    
-    CAMPAIGNS {
-        uuid id PK
-        uuid user_id FK
-        string name
-        string status
-        jsonb settings
-        timestamp scheduled_at
-        timestamp launched_at
-        timestamp completed_at
-        jsonb metrics
-        timestamp created_at
-        timestamp updated_at
-    }
-    
-    CAMPAIGN_CHANNELS {
-        uuid id PK
-        uuid campaign_id FK
-        string channel_type
-        jsonb content
-        jsonb settings
-        int order_index
-        string status
-        jsonb delivery_stats
-    }
-    
-    LEADS {
-        uuid id PK
-        uuid user_id FK
-        string email
-        string phone
-        string first_name
-        string last_name
-        string company
-        jsonb custom_fields
-        jsonb tags
-        string source
-        timestamp created_at
-        timestamp updated_at
-    }
-    
-    AUDIT_LOGS {
-        uuid id PK
-        uuid user_id FK
-        string action
-        string resource_type
-        uuid resource_id
-        jsonb changes
-        string ip_address
-        string user_agent
-        timestamp created_at
-    }
-```
+        USERS ||--o{ USER_INTEGRATIONS : has
+        USERS ||--o{ CAMPAIGNS : creates
+        USERS ||--o{ LEADS : imports
+        USERS ||--o{ AUDIT_LOGS : generates
+        
+        USER_INTEGRATIONS ||--o{ INTEGRATION_LOGS : tracks
+        
+        CAMPAIGNS ||--o{ CAMPAIGN_CHANNELS : contains
+        CAMPAIGNS ||--o{ CAMPAIGN_RECIPIENTS : targets
+        CAMPAIGNS ||--o{ CAMPAIGN_ANALYTICS : produces
+        
+        LEADS ||--o{ LEAD_TAGS : has
+        LEADS ||--o{ CAMPAIGN_RECIPIENTS : receives
+        
+        USERS {
+            uuid id PK
+            string auth0_id UK
+            string email UK
+            string name
+            string company_name
+            string industry
+            jsonb marketing_goals
+            jsonb onboarding_state
+            jsonb metadata
+            timestamp created_at
+            timestamp updated_at
+        }
+        
+        USER_INTEGRATIONS {
+            uuid id PK
+            uuid user_id FK
+            string type
+            string provider
+            string status
+            jsonb encrypted_credentials
+            jsonb test_results
+            array permissions
+            jsonb metadata
+            timestamp created_at
+            timestamp updated_at
+        }
+        
+        CAMPAIGNS {
+            uuid id PK
+            uuid user_id FK
+            string name
+            string status
+            jsonb settings
+            timestamp scheduled_at
+            timestamp launched_at
+            timestamp completed_at
+            jsonb metrics
+            timestamp created_at
+            timestamp updated_at
+        }
+        
+        CAMPAIGN_CHANNELS {
+            uuid id PK
+            uuid campaign_id FK
+            string channel_type
+            jsonb content
+            jsonb settings
+            int order_index
+            string status
+            jsonb delivery_stats
+        }
+        
+        LEADS {
+            uuid id PK
+            uuid user_id FK
+            string email
+            string phone
+            string first_name
+            string last_name
+            string company
+            jsonb custom_fields
+            jsonb tags
+            string source
+            timestamp created_at
+            timestamp updated_at
+        }
+        
+        AUDIT_LOGS {
+            uuid id PK
+            uuid user_id FK
+            string action
+            string resource_type
+            uuid resource_id
+            jsonb changes
+            string ip_address
+            string user_agent
+            timestamp created_at
+        }
+    ```
 4. JSON Code Snippets ✓
     
     4.1 Enhanced n8n Workflow JSON
@@ -1884,7 +2399,7 @@ USERS ||--o{ USER_INTEGRATIONS : has
     This section
 
 
-Additional Enhancements Included
+**Additional Enhancements Included**
 - Security Hardening
 - Envelope encryption for credentials
 - Automated key rotation schedules

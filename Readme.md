@@ -872,7 +872,8 @@ flowchart TD
   B -->|Google SSO| C[Auth0 ↔ Google OAuth]
   B -->|Email/Password| D[Auth0 User Pool]
 
-  C & D --> E[Onboarding Wizard]
+  C --> E[Onboarding Wizard]
+  D --> E[Onboarding Wizard]
   E --> F[Step 1: Configure WhatsApp Business API]
   E --> G[Step 2: Configure Email (IMAP/SMTP)]
   E --> H[Step 3: Select Social Media Connectors]

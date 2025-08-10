@@ -865,7 +865,7 @@ A set of documentation sections you can drop into your “Business Logic & Objec
 
 ## 1. Integration Configuration Workflow
 flowchart TD
-```mermaid
+```
 graph TD;
   A[User lands on Login Page]
     --> B{SSO or Register}
@@ -1322,13 +1322,13 @@ main
 
  2. Backup Schedule
 
-        | Component | Frequency | Retention | Storage |
-        |-----------|-----------|-----------|---------|
-        | PostgreSQL | Every 6 hours | 30 days | S3 + GCS |
-        | Redis | Every 4 hours | 7 days | S3 + GCS |
-        | N8N Workflows | Daily | 90 days | S3 + GCS |
-        | Application Code | On commit | Indefinite | Git |
-        | Configuration | Daily | 30 days | S3 + GCS |
+| Component | Frequency | Retention | Storage |
+|-----------|-----------|-----------|---------|
+| PostgreSQL | Every 6 hours | 30 days | S3 + GCS |
+| Redis | Every 4 hours | 7 days | S3 + GCS |
+| N8N Workflows | Daily | 90 days | S3 + GCS |
+| Application Code | On commit | Indefinite | Git |
+| Configuration | Daily | 30 days | S3 + GCS |
 
 3. Recovery Procedures
 
@@ -2128,7 +2128,7 @@ All operations from onboarding to content distribution and analytics are powered
     
     Step-by-Step User Journey
     flowchart TD
-    ```mermaid
+    ```flowchart TD
     graph TD;
         subgraph "1. Authentication Phase"
             A[User Access] --> B{New or Existing?}

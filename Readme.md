@@ -56,23 +56,27 @@ These are the highest-impact, low-overhead additions that will make the platform
 
 
 ## 2. TECHNOLOGY STACK {#technology-stack}
-BACKEND
-Primary Language: Node.js (v18+)
-Framework: Express.js
-Secondary Language: Python 3.10+ (for AI services)
-Framework: FastAPI
 
-Database:
-  - PostgreSQL 14+ (main database)
-  - Redis 7+ (caching & sessions)
-  - MongoDB (optional, for logs)
+### BACKEND
+        Primary Language: Node.js (v18+)
+        Framework: Express.js
+        Secondary Language: Python 3.10+ (for AI services)
+        Framework: FastAPI
 
+### Database:
+
+        
+        PostgreSQL 14+ (main database)
+        
+        Redis 7+ (caching & sessions)
+        
+        MongoDB (optional, for logs)
 
         Message Queue: RabbitMQ or Apache Kafka
 
         Search Engine: ElasticSearch (optional)
 
-        FRONTEND
+### FRONTEND
 
         Framework: Next.js 14+
 
@@ -86,7 +90,7 @@ Database:
 
         Forms: React Hook Form
 
-        MOBILE
+### MOBILE
 
         Framework: React Native
 
@@ -96,7 +100,7 @@ Database:
 
         Push Notifications: Firebase
 
-        AUTOMATION
+### AUTOMATION
 
         Workflow Engine: N8N (self-hosted)
 
@@ -104,7 +108,7 @@ Database:
 
         Queue Processing: Bull
 
-        AI/ML
+### AI/ML
 
         LLM APIs: OpenAI, Claude
 
@@ -114,7 +118,7 @@ Database:
 
         NLP: spaCy
 
-        INFRASTRUCTURE
+### INFRASTRUCTURE
 
         Containerization: Docker
 
@@ -331,7 +335,7 @@ CREATE TABLE crm_integration_map (
 
 ## 6. CORE BACKEND DEVELOPMENT {#backend-development}
 
-# 📊 FINEACERS Marketing Automation - Business Logic
+### 📊 FINEACERS Marketing Automation - Business Logic
 
 
 Content Management & Distribution Engine
@@ -558,7 +562,7 @@ Annexure: Enhanced Technical Specifications for FINEACERS AI Marketing Automatio
 
 1. N8N Workflow Details
 
-1.1 Additional Pre-built Workflow JSONs
+    1.1 Additional Pre-built Workflow JSONs
 
 
 - Workflow 1: Multi-Stage Lead Nurture Campaign
@@ -567,28 +571,27 @@ Annexure: Enhanced Technical Specifications for FINEACERS AI Marketing Automatio
 
 - Workflow 3: Social Media Content Distribution
 
-1.2 Error Handling Workflows
+    1.2 Error Handling Workflows
 
-Master Error Handler Workflow
+    Master Error Handler Workflow
 
 2. AI Model Specifics
 
-2.1 Model Selection Strategy
+    2.1 Model Selection Strategy
 
-2.2 AI Service with Fallback Implementation
+    2.2 AI Service with Fallback Implementation
 
 3. Rate Limiting Configuration
 
-3.1 API Rate Limits Definition
+    3.1 API Rate Limits Definition
 
-3.2 Rate Limiter Implementation
+    3.2 Rate Limiter Implementation
 
 4. Backup Strategy
 
-4.1 Automated Backup Configuration
+    4.1 Automated Backup Configuration
 
-
-4.2 Backup Scripts
+    4.2 Backup Scripts
 ```
 #!/bin/bash
 # backup-scripts/postgres-backup.sh
@@ -787,8 +790,8 @@ main() {
 main
 ```
 
+    4.3 Disaster Recovery Procedures
 
-### 4.3 Disaster Recovery Procedures
 # Disaster Recovery Runbook
 
 1. Recovery Time Objectives (RTO) and Recovery Point Objectives (RPO)
@@ -798,13 +801,13 @@ main
 
  2. Backup Schedule
 
-| Component | Frequency | Retention | Storage |
-|-----------|-----------|-----------|---------|
-| PostgreSQL | Every 6 hours | 30 days | S3 + GCS |
-| Redis | Every 4 hours | 7 days | S3 + GCS |
-| N8N Workflows | Daily | 90 days | S3 + GCS |
-| Application Code | On commit | Indefinite | Git |
-| Configuration | Daily | 30 days | S3 + GCS |
+        | Component | Frequency | Retention | Storage |
+        |-----------|-----------|-----------|---------|
+        | PostgreSQL | Every 6 hours | 30 days | S3 + GCS |
+        | Redis | Every 4 hours | 7 days | S3 + GCS |
+        | N8N Workflows | Daily | 90 days | S3 + GCS |
+        | Application Code | On commit | Indefinite | Git |
+        | Configuration | Daily | 30 days | S3 + GCS |
 
 3. Recovery Procedures
 
@@ -907,7 +910,7 @@ docker-compose -f docker-compose.test.yml down -v
 echo "DR Drill completed at $(date)"
 ```
 
-6.2 Backup Integrity Verification
+    6.2 Backup Integrity Verification
 
 These comprehensive enhancements provide:
 
@@ -1353,12 +1356,19 @@ This enhanced system now provides enterprise-grade security, scalability, and co
 FINEACERS AI MARKETING AUTOMATION – MASTER OVERVIEW
 
 🔷 What Is This Program?
+    
     FineAcers AI Marketing Automation is an intelligent, self-service platform designed for real estate and hospitality sales teams to automate and enhance their lead generation, qualification, content creation, and cross-platform marketing execution.
+    
     This unified system combines:
+    
     CRM functions
+    
     GPT-powered AI lead scoring and content generation
+    
     Automation workflows (via N8N)
+    
     Integration with major communication channels (WhatsApp, Email, FB, IG, TikTok, etc.)
+    
     It enables faster conversion, smarter targeting, reduced workload, and scalable marketing intelligence.
     
 💼 Business Logic – How It Works
@@ -1367,31 +1377,31 @@ FINEACERS AI MARKETING AUTOMATION – MASTER OVERVIEW
 
 1. Lead Lifecycle Automation:
 
-Leads are scored using GPT-4-based AI, considering budget, urgency, engagement, and readiness.
+    Leads are scored using GPT-4-based AI, considering budget, urgency, engagement, and readiness.
 
-Categorized as Hot, Warm, or Cold.
+    Categorized as Hot, Warm, or Cold.
 
-Routed accordingly:
+    Routed accordingly:
 
-Hot: Immediate WhatsApp follow-up
+    Hot: Immediate WhatsApp follow-up
 
-Warm: Personalized email
+    Warm: Personalized email
 
-Cold: Enters long-term nurture queue
+    Cold: Enters long-term nurture queue
 2. Content Engine:
 
-AI creates brochures, reels, posters, carousels, and captions optimized per platform.
+    AI creates brochures, reels, posters, carousels, and captions optimized per platform.
 
-Platform-specific formats generated (Instagram Story vs. YouTube Thumbnail).
+    Platform-specific formats generated (Instagram Story vs. YouTube Thumbnail).
 
-Uses DALL·E, Stable Diffusion, and GPT-4 for intelligent visual and text output.
+    Uses DALL·E, Stable Diffusion, and GPT-4 for intelligent visual and text output.
 3. Multi-Channel Campaign Execution:
 
-Auto-schedules and posts content to all connected platforms.
+    Auto-schedules and posts content to all connected platforms.
 
-A/B testing for creatives and messaging.
+    A/B testing for creatives and messaging.
 
-Tracks engagement metrics: CTR, conversion, impressions, time-on-page, etc.
+    Tracks engagement metrics: CTR, conversion, impressions, time-on-page, etc.
 4. N8N Workflow Automation:
 
 All operations from onboarding to content distribution and analytics are powered by modular, scalable N8N workflows.
@@ -1404,73 +1414,75 @@ All operations from onboarding to content distribution and analytics are powered
 
 1. Authentication (via Auth0):
 
-Google SSO
+    Google SSO
 
-Enterprise logins (SAML, OIDC)
+    Enterprise logins (SAML, OIDC)
 
-Email/password
+    Email/password
 
 2. Integration Wizard (Step-by-Step):
 
-WhatsApp Business API
+    WhatsApp Business API
 
-Email (IMAP/SMTP)
+    Email (IMAP/SMTP)
 
-Facebook, Instagram, LinkedIn, YouTube, TikTok
+    Facebook, Instagram, LinkedIn, YouTube, TikTok
 
-Google Drive, OpenAI, ElevenLabs, Stability.ai
+    Google Drive, OpenAI, ElevenLabs, Stability.ai
 
 3. Dashboard Access:
 
-Real-time view of connected accounts
+    Real-time view of connected accounts
 
-Testing tools for integration health
+    Testing tools for integration health
 
-Lead upload interface and campaign tools
+    Lead upload interface and campaign tools
 
 4. Lead Upload & Scoring:
 
-Upload CSV or auto-pull from Meta Leads or CRM
+    Upload CSV or auto-pull from Meta Leads or CRM
 
-AI enriches data (company, social links, interests)
+    AI enriches data (company, social links, interests)
 
-Auto-assigns score → routes to corresponding campaign workflow
+    Auto-assigns score → routes to corresponding campaign workflow
 
 ⚙️ Key Features
-Category
-Features
+
+    Category
+
+    Features
 
 🔐 User Access
 
-SSO (Auth0), Multi-role login
+    SSO (Auth0), Multi-role login
 
 🔄 Automations
 
-AI-based lead scoring, routing, enrichment, auto-posting
+    AI-based lead scoring, routing, enrichment, auto-posting
 
 📊 Analytics
 
-Per-channel campaign performance, CTR, ROI, engagement heatmaps
+    Per-channel campaign performance, CTR, ROI, engagement heatmaps
 
 🧠 AI Integrations
 
-GPT-4, Claude, DALL·E, Stable Diffusion, ElevenLabs
+    GPT-4, Claude, DALL·E, Stable Diffusion, ElevenLabs
 
 🔌 Channel Support
 
-WhatsApp, Email, Facebook, Instagram, LinkedIn, YouTube, TikTok
+    WhatsApp, Email, Facebook, Instagram, LinkedIn, YouTube, TikTok
 
 🗃️ Content Mgmt
 
-Caption builder, auto-resizing images, format-specific content generation
+    Caption builder, auto-resizing images, format-specific content generation
 
 📨 Campaign Flow
 
-Upload Leads → Score → Create → A/B Test → Auto-Post → Retarget
+    Upload Leads → Score → Create → A/B Test → Auto-Post → Retarget
 
 🌍 Localization
 
-Ready for multi-region rollout and multilingual support
+    Ready for multi-region rollout and multilingual support
 
 
 🗂️ Technical Architecture & Implementation
@@ -1478,69 +1490,69 @@ Ready for multi-region rollout and multilingual support
 
 📌 Based on the document: FINEACERS AI MARKETING AUTOMATION.docx
 
-Frontend: React + Next.js (Web & Mobile App)
+    Frontend: React + Next.js (Web & Mobile App)
 
-Backend: Node.js (Express) + FastAPI for AI services
+    Backend: Node.js (Express) + FastAPI for AI services
 
-Workflows: N8N Self-Hosted (modular, scalable automations)
+    Workflows: N8N Self-Hosted (modular, scalable automations)
 
-Lead API: Scores + routes leads using GPT-4 + OpenAI embeddings
+    Lead API: Scores + routes leads using GPT-4 + OpenAI embeddings
 
-Campaign API: Tracks posting, metrics, retries, and ROI reporting
+    Campaign API: Tracks posting, metrics, retries, and ROI reporting
 
-AI Captioning: Platform-specific tone and formatting for each post
+    AI Captioning: Platform-specific tone and formatting for each post
 
-PostgreSQL schema defined for: leads, campaigns, nurture steps, content
+    PostgreSQL schema defined for: leads, campaigns, nurture steps, content
 
 🏗️ Infrastructure Requirements
 
 
 📌 Based on the document: infrastructure requirement.docx
 
-Bare Minimum Setup (Startup Mode):
+    Bare Minimum Setup (Startup Mode):
 
-DigitalOcean Droplets (x2) or Docker setup
+    DigitalOcean Droplets (x2) or Docker setup
 
-PostgreSQL (2vCPU / 4GB RAM)
+    PostgreSQL (2vCPU / 4GB RAM)
 
-Redis cache (small instance)
+    Redis cache (small instance)
 
-Cloudflare free tier for DNS/CDN/WAF
+    Cloudflare free tier for DNS/CDN/WAF
 
-Auth0 free tier for up to 7K users
+    Auth0 free tier for up to 7K users
 
-GPT-4 + DALL·E (pay-as-you-go API usage)
+    GPT-4 + DALL·E (pay-as-you-go API usage)
 
-Twilio/SendGrid for WhatsApp/Email
+    Twilio/SendGrid for WhatsApp/Email
 
-Scalable Future-Ready Stack:
+    Scalable Future-Ready Stack:
 
-Kubernetes (DOKS with autoscaling node pools)
+    Kubernetes (DOKS with autoscaling node pools)
 
-Managed PostgreSQL + Redis
+    Managed PostgreSQL + Redis
 
-CDN via Cloudflare + BunnyCDN
+    CDN via Cloudflare + BunnyCDN
 
-Monitoring via Grafana + Prometheus
+    Monitoring via Grafana + Prometheus
 
-AI workloads via GPU droplets
+    AI workloads via GPU droplets
 
 🎯 User Journey Summary
 
 
-Login → via Google SSO or Email
+    Login → via Google SSO or Email
 
-Configure → WhatsApp, Email, Social Media, AI tools
+    Configure → WhatsApp, Email, Social Media, AI tools
 
-Upload Leads → CSV, CRM, Meta Lead Ads
+    Upload Leads → CSV, CRM, Meta Lead Ads
 
-AI Scores & Enriches → Categorizes as Hot/Warm/Cold
+    AI Scores & Enriches → Categorizes as Hot/Warm/Cold
 
-Create Campaign → Auto-generate content
+    Create Campaign → Auto-generate content
 
-A/B Test & Distribute → Across platforms
+    A/B Test & Distribute → Across platforms
 
-Track Results → Optimize → Follow up → Repeat
+    Track Results → Optimize → Follow up → Repeat
 
 🚀 Expected Outcomes & Benefits
 

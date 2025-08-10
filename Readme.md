@@ -2131,7 +2131,7 @@ All operations from onboarding to content distribution and analytics are powered
 
     flowchart TD
     ```mermaid
-    graph TD;
+    flowchart TD;
         subgraph "1. Authentication Phase"
             A[User Access] --> B{New or Existing?}
             B -->|New User| C[Registration Options]

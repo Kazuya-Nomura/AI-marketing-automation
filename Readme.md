@@ -2255,7 +2255,8 @@ All operations from onboarding to content distribution and analytics are powered
 
     3.2 Data Schema ER Diagram
 
-    ```erDiagram
+    ```mermaid
+    erDiagram
 
         USERS ||--o{ USER_INTEGRATIONS : has
         USERS ||--o{ CAMPAIGNS : creates

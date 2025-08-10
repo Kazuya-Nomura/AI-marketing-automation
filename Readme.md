@@ -864,8 +864,9 @@ A n8n workflow JSON skeleton for “User Integration Setup”
 A set of documentation sections you can drop into your “Business Logic & Objectives”
 
 ## 1. Integration Configuration Workflow
-
-```flowchart TD
+flowchart TD
+```mermaid
+graph TD;
   A[User lands on Login Page]
     --> B{SSO or Register}
   B -->|Google SSO| C[Auth0 ↔ Google OAuth]
@@ -2121,8 +2122,9 @@ All operations from onboarding to content distribution and analytics are powered
 1. Onboarding Logic & Process Flow ✓
     
     Step-by-Step User Journey
-
-    ```flowchart TD
+    flowchart TD
+    ```mermaid
+    graph TD;
         subgraph "1. Authentication Phase"
             A[User Access] --> B{New or Existing?}
             B -->|New User| C[Registration Options]

@@ -2126,6 +2126,7 @@ All operations from onboarding to content distribution and analytics are powered
 1. Onboarding Logic & Process Flow ✓
     
     Step-by-Step User Journey
+
     flowchart TD
     ```mermaid
     graph TD;
@@ -2198,7 +2199,10 @@ All operations from onboarding to content distribution and analytics are powered
     
     3.1 Complete System Architecture
 
-    ```flowchart TB
+    flowchart TB
+
+    ```mermaid
+    graph TD;
         subgraph "Frontend Layer"
             UI[React UI]
             AUTH[Auth0 SDK]
